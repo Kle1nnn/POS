@@ -12,6 +12,7 @@
   --font-mono: var(--font-geist-mono);
   --color-brown: #81472f;
   --color-lightpink: rgb(250, 238, 239);
+  --color-darkbrown: #704232;
 }
 
 @media (prefers-color-scheme: dark) {
