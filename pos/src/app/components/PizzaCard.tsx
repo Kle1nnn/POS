@@ -2,6 +2,7 @@
 import React, { useState } from "react";
 import { Product } from "./Product";
 import { useCart } from "../context/CartContext";
+import { sizePrice, toppingsPrice } from "./priceRules";
 interface PizzaCardProps {
   product: Product;
 }
@@ -13,12 +14,18 @@ export default function PizzaCard({ product }: PizzaCardProps) {
   const [selectedTopping, setSelectedTopping] = useState<string>("0%");
   const [selectedSauce, setSelectedSauce] = useState<string>("0%");
 
+  const finalPrice =
+    product.basePrice +
+    sizePrice[selectedSize] +
+    toppingsPrice[selectedTopping];
   const handleAddToBilling = () => {
     const orderItem = {
       ...product,
+      basePrice: product.basePrice,
       selectedSize,
       selectedTopping,
       selectedSauce,
+      price: finalPrice,
     };
 
     addToCart(orderItem);
@@ -40,7 +47,7 @@ export default function PizzaCard({ product }: PizzaCardProps) {
             {product.description}
           </p>
           <p className="text-lg font-bold text-gray-900">
-            ${product.price.toFixed(2)}
+            ${finalPrice.toFixed(2)}
           </p>
         </div>
       </div>

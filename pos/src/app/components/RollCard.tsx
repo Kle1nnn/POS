@@ -35,7 +35,7 @@ export default function RollCard({ product }: RollCardProps) {
             {product.description}
           </p>
           <p className="text-lg font-bold text-gray-900">
-            ${product.price.toFixed(2)}
+            ${product.basePrice.toFixed(2)}
           </p>
         </div>
       </div>
