@@ -5,5 +5,7 @@ export interface Product {
   price: number;
   image: string;
   category: string;
-  sizes: string[];
+  sizes?: string[];
+  hasExtraToppings?: boolean;
+  hasSauceOptions?: boolean;
 }

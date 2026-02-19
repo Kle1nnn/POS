@@ -1,10 +1,9 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import Sidebar from "@/app/components/Sidebar";
+import Sidebar from "./components/Sidebar";
 import Billing from "./components/Billing";
-import { CategoryProvider } from "./context/CategoryContext";
-
+import ClientProviders from "./components/ClientProvider";
 const geistSans = Geist({
   variable: "--font-geist-sans",
   subsets: ["latin"],
@@ -30,11 +29,11 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <CategoryProvider>
+        <ClientProviders>
           <Sidebar />
           <Billing />
-          <main className="flex-1 p-8 md:ml-28 md:mr-72">{children}</main>
-        </CategoryProvider>
+          <main className="p-8 ml-28 mr-72">{children}</main>
+        </ClientProviders>
       </body>
     </html>
   );

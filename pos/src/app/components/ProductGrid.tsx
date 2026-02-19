@@ -1,33 +1,22 @@
 "use client";
 import React from "react";
-import ProductCard from "./ProductCard";
 import { Product } from "./Product";
+import { useCategory } from "../context/CategoryContext";
+import { products } from "../data/products";
 
-const products: Product[] = [
-  {
-    id: "1",
-    name: "Afghani Pizza",
-    description: "Delicion Afghani Style Pizza",
-    price: 12.99,
-    image: "",
-    category: "Pizza",
-    sizes: ["Small", "Medium", "Large"],
-  },
-];
+import PizzaCard from "./PizzaCard";
+import BurgerCard from "./BurgerCard";
+import RollCard from "./RollCard";
+import FriesCard from "./FriesCard";
+import DrinksCard from "./DrinksCard";
 
 export default function ProductGrid() {
-  const [selectedCategory, setSelectedCaregory] = React.useState<string>("ALL");
-  const [searchQuery, setSearchQuery] = React.useState<string>("");
-
-  const categories = ["ALL", "Pizza", "Burger", "Rolls", "Fries", "Drinks"];
+  const { selectedCategory } = useCategory();
 
   const filteredProducts = products.filter((product) => {
     const matchesCategory =
       selectedCategory === "ALL" || product.category === selectedCategory;
-    const matchesSearch = product.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
+    return matchesCategory;
   });
 
   const productsByCategory = filteredProducts.reduce(
@@ -40,6 +29,23 @@ export default function ProductGrid() {
     },
     {} as { [key: string]: Product[] },
   );
+
+  const renderProductCard = (product: Product) => {
+    switch (product.category) {
+      case "Pizza":
+        return <PizzaCard key={product.id} product={product} />;
+      case "Burger":
+        return <BurgerCard key={product.id} product={product} />;
+      case "Rolls":
+        return <RollCard key={product.id} product={product} />;
+      case "Fries":
+        return <FriesCard key={product.id} product={product} />;
+      case "Drinks":
+        return <DrinksCard key={product.id} product={product} />;
+      default:
+        return <BurgerCard key={product.id} product={product} />;
+    }
+  };
 
   return (
     <div className="py-6">
@@ -54,9 +60,7 @@ export default function ProductGrid() {
               </span>
             </h2>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-              {categoryProducts.map((product) => (
-                <ProductCard key={product.id} product={product} />
-              ))}
+              {categoryProducts.map((product) => renderProductCard(product))}
             </div>
           </div>
         ),

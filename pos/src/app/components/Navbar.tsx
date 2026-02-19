@@ -1,11 +1,9 @@
 "use client";
 
 import React from "react";
-import { CategoryContext } from "../context/CategoryContext";
-
+import { useCategory } from "../context/CategoryContext";
 export default function Navbar() {
-  const { selectedCategory, setSelectedCategory } =
-    React.useContext(CategoryContext);
+  const { selectedCategory, setSelectedCategory } = useCategory();
   const Menu = ["ALL", "Pizza", "Burger", "Rolls", "Fries", "Drinks"];
 
   return (

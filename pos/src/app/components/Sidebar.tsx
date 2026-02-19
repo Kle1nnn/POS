@@ -40,12 +40,7 @@ export default function Sidebar() {
             <Link
               key={index}
               href={item.href}
-              className="flex flex-col items-center justify-center w-18 aspect-square
-                         bg-white rounded-lg border border-white
-                         hover:bg-brown hover:text-white 
-                         hover:scale-105 hover:shadow-lg
-                         transition-all duration-300 ease-in-out
-                         cursor-pointer text-sm font-medium"
+              className="flex flex-col items-center justify-center w-18 aspect-square bg-white rounded-lg border border-white hover:bg-brown hover:text-white hover:scale-105 hover:shadow-lg transition-all duration-300 ease-in-out cursor-pointer text-sm font-medium"
             >
               {item.icon}
               {item.label}
