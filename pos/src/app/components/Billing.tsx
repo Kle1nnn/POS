@@ -6,7 +6,6 @@ export default function Billing() {
   const { cartItems, removeFromCart, clearCart, updateQuantity } = useCart();
   const [open, setOpen] = useState(true);
 
-  // Safe total calculation – prefers final price → falls back to basePrice
   const total = cartItems.reduce((sum, item) => {
     const effectivePrice = item.price ?? item.basePrice ?? 0;
     return sum + effectivePrice * (item.quantity || 1);
@@ -14,7 +13,7 @@ export default function Billing() {
 
   return (
     <div>
-      {/* Mobile toggle with cart count badge */}
+      {/* Mobile toggle*/}
       <button
         onClick={() => setOpen(!open)}
         className="fixed top-4 right-4 z-50 bg-amber-900 text-white px-4 py-3 rounded-full shadow-lg md:hidden flex items-center gap-2"
