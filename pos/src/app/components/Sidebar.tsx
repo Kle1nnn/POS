@@ -15,7 +15,6 @@ export default function Sidebar() {
 
   return (
     <div>
-      {/* Toggle Button (Mobile Only) */}
       <button
         onClick={() => setOpen(!open)}
         className="fixed top-4 left-4 z-50 bg-black text-white px-3 py-2 rounded md:hidden"
@@ -23,11 +22,25 @@ export default function Sidebar() {
         ☰
       </button>
 
-      {/* Sidebar */}
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 bg-black/30 z-30 md:hidden"
+        />
+      )}
+
       <aside
-        className={`fixed top-0 left-0 mt-0 ml-0 rounded-xl h-screen bg-white text-black w-28 shadow-2xs
+        className={`
+        bg-white text-black w-28 shadow-sm flex flex-col border-r border-gray-200
+
+        /* Desktop */
+        md:relative md:translate-x-0 md:h-screen md:flex-shrink-0
+
+        /* Mobile Drawer */
+        fixed top-0 left-0 h-screen z-40
         transform transition-transform duration-300 ease-in-out
-        ${open ? "translate-x-0" : "-translate-x-full"} md:translate-x-0`}
+        ${open ? "translate-x-0" : "-translate-x-full"}
+      `}
       >
         {/* Header */}
         <div className="p-6 text-xl text-center font-bold  border-gray-300">

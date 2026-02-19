@@ -27,9 +27,13 @@ export default function Billing() {
       </button>
 
       <aside
-        className={`fixed top-0 right-0 h-screen bg-white w-80 sm:w-96 shadow-2xl z-40 flex flex-col
-          transform transition-transform duration-300 ease-in-out
-          ${open ? "translate-x-0" : "translate-x-full"} md:translate-x-0`}
+        className={`
+        bg-white w-80 sm:w-96 shadow-2xl flex flex-col border-l border-gray-200
+        md:relative md:translate-x-0 md:h-screen
+        fixed top-0 right-0 h-screen z-40
+        transform transition-transform duration-300 ease-in-out
+        ${open ? "translate-x-0" : "translate-x-full"}
+      `}
       >
         <div className="p-6 text-2xl font-bold text-center border-b border-gray-200 bg-gray-50">
           Your Order
