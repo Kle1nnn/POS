@@ -4,11 +4,11 @@ import { Product } from "./Product";
 import { useCategory } from "../context/CategoryContext";
 import { products } from "../data/products";
 
-import PizzaCard from "./PizzaCard";
-import BurgerCard from "./BurgerCard";
-import RollCard from "./RollCard";
-import FriesCard from "./FriesCard";
-import DrinksCard from "./DrinksCard";
+import PizzaCard from "./card/PizzaCard";
+import BurgerCard from "./card/BurgerCard";
+import RollCard from "./card/RollCard";
+import FriesCard from "./card/FriesCard";
+import DrinksCard from "./card/DrinksCard";
 
 export default function ProductGrid() {
   const { selectedCategory } = useCategory();

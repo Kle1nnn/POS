@@ -1,0 +1,1 @@
+when an item with specific topping is added to billing, adding the same item but without topping doesnt work, and it just multiplies the product which already is there.

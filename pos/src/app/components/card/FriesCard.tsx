@@ -1,7 +1,7 @@
 "use client";
 import React from "react";
-import { Product } from "./Product";
-import { useCart } from "../context/CartContext";
+import { Product } from "../Product";
+import { useCart } from "../../context/CartContext";
 interface FriesCardProps {
   product: Product;
 }
@@ -10,14 +10,10 @@ export default function FriesCard({ product }: FriesCardProps) {
   const { addToCart } = useCart();
 
   const handleAddToBilling = () => {
-    const orderItem = {
+    addToCart({
       ...product,
-      selectedSize: "N/A",
-      selectedTopping: "None",
-      selectedSauce: "None",
-    };
-    addToCart(orderItem);
-    console.log("Added to billing:", orderItem);
+      price: product.basePrice,
+    });
   };
 
   return (

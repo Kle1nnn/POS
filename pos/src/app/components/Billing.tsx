@@ -1,159 +1,164 @@
 "use client";
+
 import { useCart } from "../context/CartContext";
+import { useOrders } from "../context/OrdersContext";
 import { useState } from "react";
 
 export default function Billing() {
-  const { cartItems, removeFromCart, clearCart, updateQuantity } = useCart();
+  const { cartItems, removeFromCart, clearCart, updateQuantity, totalPrice } =
+    useCart();
+  const { saveOrder, checkoutOrder } = useOrders();
   const [open, setOpen] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
-  const total = cartItems.reduce((sum, item) => {
-    const effectivePrice = item.price ?? item.basePrice ?? 0;
-    return sum + effectivePrice * (item.quantity || 1);
-  }, 0);
+  const showToast = (msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  // Saves the order to Orders tab, clears cart
+  const handleSaveOrder = () => {
+    if (cartItems.length === 0) return;
+    saveOrder([...cartItems], totalPrice);
+    clearCart();
+    showToast("Order saved!");
+  };
+
+  // Saves AND immediately checks out, goes straight to History
+  const handleCheckout = () => {
+    if (cartItems.length === 0) return;
+    const orderId = saveOrder([...cartItems], totalPrice);
+    checkoutOrder(orderId);
+    clearCart();
+    showToast("Order checked out!");
+  };
 
   return (
     <div>
-      {/* Mobile toggle*/}
+      {/* Toast notification */}
+      {toast && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg transition-all">
+          {toast}
+        </div>
+      )}
+
+      {/* Mobile toggle */}
       <button
         onClick={() => setOpen(!open)}
-        className="fixed top-4 right-4 z-50 bg-amber-900 text-white px-4 py-3 rounded-full shadow-lg md:hidden flex items-center gap-2"
+        className="fixed top-4 right-4 z-50 bg-amber-900 text-white px-3 py-2 rounded-lg md:hidden shadow-lg"
       >
-        <span className="text-lg">🛒</span>
-        {cartItems.length > 0 && (
-          <span className="bg-white text-amber-900 text-xs font-bold px-2 py-1 rounded-full min-w-[1.5rem] text-center">
-            {cartItems.length}
-          </span>
-        )}
+        🧾
       </button>
 
       <aside
-        className={`
-        bg-white w-80 sm:w-96 shadow-2xl flex flex-col border-l border-gray-200
-        md:relative md:translate-x-0 md:h-screen
-        fixed top-0 right-0 h-screen z-40
-        transform transition-transform duration-300 ease-in-out
-        ${open ? "translate-x-0" : "translate-x-full"}
-      `}
+        className={`fixed top-0 right-0 h-screen bg-white text-black w-72 shadow-xl z-40 flex flex-col
+          transform transition-transform duration-300 ease-in-out
+          ${open ? "translate-x-0" : "translate-x-full"} md:translate-x-0`}
       >
-        <div className="p-6 text-2xl font-bold text-center border-b border-gray-200 bg-gray-50">
-          Your Order
+        <div className="p-5 text-xl text-center font-bold border-b border-gray-100 bg-amber-900 text-white">
+          🧾 Billing
         </div>
 
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {cartItems.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-gray-400">
-              <div className="text-6xl mb-4 opacity-70">🛍️</div>
-              <p className="text-lg font-medium">Cart is empty</p>
-              <p className="text-sm mt-2">Add some items to get started</p>
+            <div className="text-center text-gray-400 py-16 flex flex-col items-center gap-2">
+              <span className="text-4xl">🛒</span>
+              <p className="text-sm">No items added yet</p>
             </div>
           ) : (
-            cartItems.map((item) => {
-              const qty = item.quantity || 1;
-              const unitPrice = item.price ?? item.basePrice ?? 0;
-              const itemTotal = unitPrice * qty;
+            cartItems.map((item) => (
+              <div
+                key={`${item.id}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}`}
+                className="bg-gray-50 rounded-xl p-3 border border-gray-100"
+              >
+                <div className="flex justify-between items-start mb-1">
+                  <h3 className="font-semibold text-sm text-gray-900 leading-tight pr-2">
+                    {item.name}
+                    {item.selectedSize && item.selectedSize !== "N/A" && (
+                      <span className="text-gray-500 font-normal">
+                        {" "}
+                        · {item.selectedSize}
+                      </span>
+                    )}
+                  </h3>
+                  <button
+                    onClick={() => removeFromCart(item.id)}
+                    className="text-gray-400 hover:text-red-500 transition-colors text-lg leading-none flex-shrink-0"
+                  >
+                    ×
+                  </button>
+                </div>
 
-              return (
-                <div
-                  key={item.id}
-                  className="bg-white rounded-xl p-4 border border-gray-200 shadow-sm"
-                >
-                  <div className="flex justify-between items-start gap-3 mb-2">
-                    <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">
-                        {item.name}
-                        {item.selectedSize && item.selectedSize !== "S" && (
-                          <span className="text-gray-500 font-normal text-sm">
-                            {" "}
-                            ({item.selectedSize})
-                          </span>
-                        )}
-                      </h3>
+                {((item.selectedTopping && item.selectedTopping !== "None") ||
+                  (item.selectedSauce && item.selectedSauce !== "None")) && (
+                  <div className="flex gap-1 flex-wrap mb-2">
+                    {item.selectedTopping &&
+                      item.selectedTopping !== "None" && (
+                        <span className="text-xs bg-orange-100 text-orange-700 px-2 py-0.5 rounded-full">
+                          {item.selectedTopping}
+                        </span>
+                      )}
+                    {item.selectedSauce && item.selectedSauce !== "None" && (
+                      <span className="text-xs bg-yellow-100 text-yellow-700 px-2 py-0.5 rounded-full">
+                        {item.selectedSauce}
+                      </span>
+                    )}
+                  </div>
+                )}
 
-                      <div className="text-xs text-gray-600 mt-1 space-y-0.5">
-                        {item.selectedTopping &&
-                          item.selectedTopping !== "0%" &&
-                          item.selectedTopping !== "None" && (
-                            <div>Topping: {item.selectedTopping}</div>
-                          )}
-                        {item.selectedSauce &&
-                          item.selectedSauce !== "0%" &&
-                          item.selectedSauce !== "None" && (
-                            <div>Sauce: {item.selectedSauce}</div>
-                          )}
-                      </div>
-                    </div>
-
+                <div className="flex justify-between items-center">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => removeFromCart(item.id)}
-                      className="text-red-600 hover:text-red-800 text-xl font-black leading-none p-1"
-                      title="Remove"
+                      onClick={() => updateQuantity(item.id, item.quantity - 1)}
+                      className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-sm font-bold flex items-center justify-center transition-colors"
                     >
-                      ×
+                      −
+                    </button>
+                    <span className="text-sm font-semibold w-4 text-center">
+                      {item.quantity}
+                    </span>
+                    <button
+                      onClick={() => updateQuantity(item.id, item.quantity + 1)}
+                      className="w-6 h-6 rounded-full bg-gray-200 hover:bg-gray-300 text-sm font-bold flex items-center justify-center transition-colors"
+                    >
+                      +
                     </button>
                   </div>
-
-                  <div className="flex items-center justify-between text-sm mt-3">
-                    <div className="flex items-center gap-3">
-                      {/* Quantity controls */}
-                      <div className="flex border border-gray-300 rounded overflow-hidden text-sm font-medium">
-                        <button
-                          onClick={() =>
-                            qty > 1 && updateQuantity?.(item.id, qty - 1)
-                          }
-                          className="px-3 py-1 bg-gray-100 hover:bg-gray-200 disabled:opacity-40"
-                          disabled={qty <= 1}
-                        >
-                          −
-                        </button>
-                        <span className="px-4 py-1 bg-white min-w-[2.5rem] text-center">
-                          {qty}
-                        </span>
-                        <button
-                          onClick={() => updateQuantity?.(item.id, qty + 1)}
-                          className="px-3 py-1 bg-gray-100 hover:bg-gray-200"
-                        >
-                          +
-                        </button>
-                      </div>
-
-                      <span className="text-gray-600">
-                        × ${unitPrice.toFixed(2)}
-                      </span>
-                    </div>
-
-                    <span className="font-semibold text-gray-900">
-                      ${itemTotal.toFixed(2)}
-                    </span>
-                  </div>
+                  <span className="font-semibold text-sm text-gray-900">
+                    Rs. {(item.price * item.quantity).toFixed(0)}
+                  </span>
                 </div>
-              );
-            })
+              </div>
+            ))
           )}
         </div>
 
-        <div className="border-t border-gray-200 p-5 bg-gray-50">
-          <div className="flex justify-between items-center text-xl font-bold mb-5">
+        <div className="border-t border-gray-100 p-4 bg-gray-50">
+          <div className="flex justify-between text-lg font-bold mb-4 text-gray-900">
             <span>Total</span>
-            <span className="text-amber-900">${total.toFixed(2)}</span>
+            <span>Rs. {totalPrice.toFixed(0)}</span>
           </div>
-
-          <div className="grid gap-3">
-            <button className="bg-amber-900 text-white py-3.5 rounded-xl font-semibold hover:bg-amber-800 active:bg-amber-950 transition shadow-sm">
-              Proceed to Checkout
+          <div className="space-y-2">
+            <button
+              onClick={handleSaveOrder}
+              disabled={cartItems.length === 0}
+              className="w-full bg-gray-900 text-white py-3 rounded-xl hover:bg-gray-800 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              💾 Save Order
             </button>
-
-            <button className="bg-gray-800 text-white py-3 rounded-xl font-semibold hover:bg-gray-900 transition">
-              Save / Add Note
+            <button
+              onClick={handleCheckout}
+              disabled={cartItems.length === 0}
+              className="w-full bg-amber-900 text-white py-3 rounded-xl hover:bg-amber-800 font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              ✅ Checkout
             </button>
-
-            {cartItems.length > 0 && (
-              <button
-                onClick={clearCart}
-                className="text-red-600 hover:text-red-700 text-sm font-medium py-2 transition"
-              >
-                Clear Cart
-              </button>
-            )}
+            <button
+              onClick={clearCart}
+              className="w-full bg-gray-200 text-gray-700 py-2 rounded-xl hover:bg-gray-300 transition-colors text-sm"
+            >
+              Clear Cart
+            </button>
           </div>
         </div>
       </aside>

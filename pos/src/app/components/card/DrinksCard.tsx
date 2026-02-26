@@ -1,7 +1,7 @@
 "use client";
 import React, { useState } from "react";
-import { Product } from "./Product";
-import { useCart } from "../context/CartContext";
+import { Product } from "../Product";
+import { useCart } from "../../context/CartContext";
 
 interface DrinksCardProps {
   product: Product;
@@ -13,14 +13,10 @@ export default function DrinksCard({ product }: DrinksCardProps) {
   const [selectedSize, setSelectedSize] = useState<string>("Regular");
 
   const handleAddToBilling = () => {
-    const orderItem = {
+    addToCart({
       ...product,
-      selectedSize,
-      selectedTopping: "None",
-      selectedSauce: "None",
-    };
-    addToCart(orderItem);
-    console.log("Added to cart:", orderItem);
+      price: product.basePrice,
+    });
   };
 
   return (

@@ -3,13 +3,15 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Clock, House, Settings, ShoppingCart } from "lucide-react";
+import { usePathname } from "next/navigation";
 export default function Sidebar() {
   const [open, setOpen] = useState(true);
+  const pathname = usePathname();
 
   const navItems = [
     { icon: <House color="black" />, label: "Menu", href: "/" },
-    { icon: <ShoppingCart color="black" />, label: "Orders", href: "/orders" },
-    { icon: <Clock color="black" />, label: "History", href: "/history" },
+    { icon: <ShoppingCart color="black" />, label: "Orders", href: "/Orders" },
+    { icon: <Clock color="black" />, label: "History", href: "/History" },
     { icon: <Settings color="black" />, label: "Settings", href: "/settings" },
   ];
 
@@ -49,16 +51,25 @@ export default function Sidebar() {
 
         {/* Navigation */}
         <nav className="p-4 space-y-4">
-          {navItems.map((item, index) => (
-            <Link
-              key={index}
-              href={item.href}
-              className="flex flex-col items-center justify-center w-18 aspect-square bg-white rounded-lg border border-white hover:bg-brown hover:text-white hover:scale-105 hover:shadow-lg transition-all duration-300 ease-in-out cursor-pointer text-sm font-medium"
-            >
-              {item.icon}
-              {item.label}
-            </Link>
-          ))}
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center w-full aspect-square rounded-xl border transition-all duration-200 ease-in-out text-sm font-medium
+                  ${
+                    isActive
+                      ? "bg-amber-900 text-white border-amber-900 shadow-md"
+                      : "bg-white text-black border-white hover:bg-gray-100 hover:shadow"
+                  }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            );
+          })}
         </nav>
       </aside>
     </div>

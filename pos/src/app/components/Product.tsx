@@ -3,6 +3,7 @@ export interface Product {
   name: string;
   description: string;
   basePrice: number;
+  sizePrices?: Record<string, number>;
   image: string;
   category: string;
   sizes?: string[];

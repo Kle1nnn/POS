@@ -3,7 +3,7 @@
 import React from "react";
 import { CartProvider } from "../context/CartContext";
 import { CategoryProvider } from "../context/CategoryContext";
-
+import { OrdersProvider } from "../context/OrdersContext";
 export default function ClientProviders({
   children,
 }: {
@@ -11,7 +11,9 @@ export default function ClientProviders({
 }) {
   return (
     <CategoryProvider>
-      <CartProvider>{children}</CartProvider>
+      <CartProvider>
+        <OrdersProvider>{children}</OrdersProvider>
+      </CartProvider>
     </CategoryProvider>
   );
 }

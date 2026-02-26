@@ -1,58 +1,38 @@
 "use client";
-
 import { createContext, useContext, useState, ReactNode } from "react";
 import { Product } from "../components/Product";
 
+export type CartItem = Product & {
+  selectedSize?: string;
+  selectedTopping?: string;
+  selectedSauce?: string;
+  quantity: number;
+  price: number;
+};
+
 type CartContextType = {
-  cartItems: (Product & {
-    selectedSize?: string;
-    selectedTopping?: string;
-    selectedSauce?: string;
-    quantity?: number;
-    price?: number;
-  })[];
-  addToCart: (
-    item: Product & {
-      selectedSize?: string;
-      selectedTopping?: string;
-      selectedSauce?: string;
-      quantity?: number;
-      price?: number;
-    },
-  ) => void;
+  cartItems: CartItem[];
+  addToCart: (item: Omit<CartItem, "quantity"> & { quantity?: number }) => void;
   removeFromCart: (id: string | number) => void;
   clearCart: () => void;
   updateQuantity: (id: string | number, newQuantity: number) => void;
+  totalPrice: number;
 };
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
 
 export function CartProvider({ children }: { children: ReactNode }) {
-  const [cartItems, setCartItems] = useState<
-    (Product & {
-      selectedSize?: string;
-      selectedTopping?: string;
-      selectedSauce?: string;
-      quantity?: number;
-      price?: number;
-    })[]
-  >([]);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
 
   const addToCart = (
-    newItem: Product & {
-      selectedSize?: string;
-      selectedTopping?: string;
-      selectedSauce?: string;
-      quantity?: number;
-      price?: number;
-    },
+    newItem: Omit<CartItem, "quantity"> & { quantity?: number },
   ) => {
     setCartItems((prev) => {
       const existing = prev.find((i) => i.id === newItem.id);
       if (existing) {
         return prev.map((i) =>
           i.id === newItem.id
-            ? { ...i, quantity: (i.quantity || 1) + (newItem.quantity || 1) }
+            ? { ...i, quantity: i.quantity + (newItem.quantity || 1) }
             : i,
         );
       }
@@ -75,6 +55,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const totalPrice = cartItems.reduce(
+    (sum, item) => sum + item.price * item.quantity,
+    0,
+  );
+
   return (
     <CartContext.Provider
       value={{
@@ -83,6 +68,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         clearCart,
         updateQuantity,
+        totalPrice,
       }}
     >
       {children}
@@ -92,8 +78,6 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
 export function useCart() {
   const context = useContext(CartContext);
-  if (!context) {
-    throw new Error("useCart must be used within CartProvider");
-  }
+  if (!context) throw new Error("useCart must be used within CartProvider");
   return context;
 }
