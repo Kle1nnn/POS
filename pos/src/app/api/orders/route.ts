@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { pgPool } from "../../../lib/db";
+import { pgPool }  from "../../../lib/db";
 
 type CartItemPayload = {
   id: string;
@@ -13,24 +13,17 @@ type CartItemPayload = {
 };
 
 type SaveOrderBody = {
-  orderCode: string;
   items: CartItemPayload[];
   total: number;
   notes?: string;
+  status?: "saved" | "checkedout";
 };
 
 export async function POST(req: NextRequest) {
   let client;
   try {
     const body = (await req.json()) as SaveOrderBody;
-    const { orderCode, items, total, notes } = body;
-
-    if (!orderCode) {
-      return NextResponse.json(
-        { error: "orderCode is required" },
-        { status: 400 },
-      );
-    }
+    const { items, total, notes, status } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json(
@@ -46,22 +39,17 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const orderStatus: "saved" = "saved";
+    const orderStatus: "saved" | "checkedout" =
+      status === "checkedout" ? "checkedout" : "saved";
+    const orderCode = `ORD-${Date.now()}`;
 
     client = await pgPool.connect();
     await client.query("BEGIN");
 
     const orderInsert = await client.query(
       `
-        INSERT INTO orders (order_code, status, total, notes, created_at, business_date)
-        VALUES (
-          $1,
-          $2::varchar(20),
-          $3,
-          $4,
-          NOW(),
-          (SELECT current_business_date FROM store_state WHERE id = 1)
-        )
+        INSERT INTO orders (order_code, status, total, notes, created_at, checked_out_at)
+        VALUES ($1, $2, $3, $4, NOW(), CASE WHEN $2 = 'checkedout' THEN NOW() ELSE NULL END)
         RETURNING id;
       `,
       [orderCode, orderStatus, total, notes ?? null],
