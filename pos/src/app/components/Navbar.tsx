@@ -7,15 +7,15 @@ export default function Navbar() {
   const Menu = ["ALL", "Pizza", "Burger", "Rolls", "Fries", "Drinks"];
 
   return (
-    <div className="flex justify-between px-4 py-8 h-25 w-full">
+    <div className="flex gap-3 px-6 py-6 w-full overflow-x-auto">
       {Menu.map((item, index) => (
         <div
           key={index}
           onClick={() => setSelectedCategory(item)}
-          className={`shrink h-20 w-18 shadow-2xs rounded-2xl flex items-center justify-center cursor-pointer transition ease-in-out duration-300 ${
+          className={`shrink-0 px-4 py-2 rounded-full text-sm cursor-pointer border transition-colors duration-200 ${
             selectedCategory === item
-              ? "bg-amber-600 text-white border-2 border-amber-700"
-              : "bg-white hover:bg-lightpink hover:border border-brown"
+              ? "bg-[#5b3722] text-white border-[#5b3722] shadow-sm"
+              : "bg-white text-gray-700 border-[#f1e5d8] hover:bg-[#f8efe5]"
           }`}
         >
           {item}

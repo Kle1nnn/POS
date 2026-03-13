@@ -1,0 +1,51 @@
+POS Change Log
+==============
+
+Entry 1:
+- Created this change log file.
+- Goal: wire Next.js POS app to PostgreSQL (`pos_db`) and document every code change related to DB integration and billing.
+
+Entry 2:
+- Implemented shared PostgreSQL connection pool in `src/lib/db.ts` using `pg.Pool` and `DATABASE_URL` (fallbacks to `postgres://postgres:1234@localhost:5432/pos_db`).
+- Used a global singleton (`global.pgPool`) to avoid creating multiple pools during Next.js hot reload.
+
+Entry 3:
+- Added `app/api/orders/route.ts` API endpoint.
+- Endpoint accepts `{ items, total, notes, status }`, creates an `orders` row and related `order_items` in PostgreSQL, and respects `status` (`saved` vs `checkedout`) for trigger-based daily/all-time sales updates.
+
+Entry 4:
+- Updated `components/Billing.tsx` to call the new `/api/orders` endpoint on Save and Checkout.
+- Added `persistOrder` helper that sends the current cart items, total, notes, and status (`saved` or `checkedout`) to PostgreSQL while keeping the existing in-memory `OrdersContext` behavior for UI.
+
+Entry 5:
+- Fixed type mismatch in `/api/orders` insert by explicitly casting `$2` to `varchar(20)` in both the `status` column and the CASE expression used to set `checked_out_at`. This resolves the `42P08 inconsistent types deduced for parameter $2` error.
+
+Entry 6:
+- Added `/api/orders/checkout` route that updates an existing order’s `status` to `checkedout` and sets `checked_out_at = NOW()` based on `order_code`, which matches the in-memory `order.id`.
+- Updated `Orders/page.tsx` so the Checkout button now calls this API before updating the in-memory `OrdersContext`, ensuring the database row transitions from `saved` → `checkedout` and the daily/all-time sales trigger fires.
+
+Entry 7:
+- Aligned order IDs between frontend and database by changing `/api/orders` to accept an `orderCode` from the client and always insert with `status = 'saved'` (no more auto-generated codes).
+- Updated `Billing.tsx` Save/Checkout handlers to:
+  - Call `saveOrder` first to get the POS order ID (e.g. `ORD-...`),
+  - POST that `orderCode` plus items/total/notes to `/api/orders`,
+  - On Checkout, immediately call `/api/orders/checkout` with the same code so the DB status moves `saved → checkedout` and triggers `daily_sales` / `alltime_sales`.
+
+Entry 8:
+- Added `/api/orders/list` GET endpoint that returns all orders joined with their `order_items` as JSON, ordered by `created_at` descending.
+- Updated `OrdersContext` to hydrate itself on first mount by fetching from `/api/orders/list` and seeding the in-memory `orders` array, so Saved Orders and History are restored from the database after a page reload.
+
+Entry 9:
+- Added `/api/store/close` POST endpoint that updates `store_state.closed_at = NOW()` and returns the current business date.
+- Updated `History/page.tsx` to include a "Close store for today" button that calls this endpoint so the user can explicitly close the business day while the trigger continues to use `store_state.current_business_date` for daily sales aggregation.
+
+Entry 10:
+- Added `/api/store/state` GET/POST endpoint to read and update `store_state.current_business_date` from the UI.
+- Implemented `/api/sales` GET endpoint that returns a summary `{ businessDate, totalRevenue, totalOrders, totalItems }` based on the current business date and `daily_sales`.
+- Updated `History/page.tsx` to:
+  - Show a "Business date" `<input type="date">` bound to `store_state.current_business_date` with a "Set" button that POSTs to `/api/store/state`.
+  - Display a "Total sales today" line using the `/api/sales` summary (revenue, orders, items) for the current business date.
+
+Entry 11:
+- Fixed the business date input jumping backwards by making `/api/store/state` always return `current_business_date` as a `YYYY-MM-DD` string using `to_char`, and using that string directly in the date input (no manual slicing or timezone conversion).
+

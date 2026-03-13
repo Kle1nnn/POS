@@ -5,6 +5,19 @@ import { useOrders } from "../context/OrdersContext";
 export default function OrdersPage() {
   const { savedOrders, checkoutOrder, deleteOrder } = useOrders();
 
+  const handleCheckout = async (orderId: string) => {
+    try {
+      await fetch("/api/orders/checkout", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderCode: orderId }),
+      });
+    } catch (error) {
+      console.error("Failed to checkout order in database", error);
+    }
+    checkoutOrder(orderId);
+  };
+
   return (
     <div className="p-6 max-w-3xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-1">📋 Saved Orders</h1>
@@ -28,7 +41,14 @@ export default function OrdersPage() {
               {/* Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <p className="font-bold text-gray-900">{order.id}</p>
+                  <p className="font-bold text-gray-900 flex items-center gap-2">
+                    <span>{order.id}</span>
+                    {order.notes && (
+                      <span className="text-xs font-normal text-gray-500 truncate max-w-[180px]">
+                        · {order.notes}
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-gray-400 mt-0.5">
                     {order.createdAt}
                   </p>
@@ -87,7 +107,7 @@ export default function OrdersPage() {
                     Delete
                   </button>
                   <button
-                    onClick={() => checkoutOrder(order.id)}
+                    onClick={() => handleCheckout(order.id)}
                     className="text-sm px-4 py-1.5 rounded-lg bg-amber-900 hover:bg-amber-800 text-white font-semibold transition-colors"
                   >
                     Checkout

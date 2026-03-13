@@ -10,13 +10,23 @@ import RollCard from "./card/RollCard";
 import FriesCard from "./card/FriesCard";
 import DrinksCard from "./card/DrinksCard";
 
-export default function ProductGrid() {
+interface ProductGridProps {
+  searchQuery?: string;
+}
+
+export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
   const { selectedCategory } = useCategory();
 
   const filteredProducts = products.filter((product) => {
     const matchesCategory =
       selectedCategory === "ALL" || product.category === selectedCategory;
-    return matchesCategory;
+    const query = searchQuery.trim().toLowerCase();
+    const matchesSearch =
+      !query ||
+      product.name.toLowerCase().includes(query) ||
+      product.description.toLowerCase().includes(query);
+
+    return matchesCategory && matchesSearch;
   });
 
   const productsByCategory = filteredProducts.reduce(
@@ -48,27 +58,29 @@ export default function ProductGrid() {
   };
 
   return (
-    <div className="py-6">
-      {/* Products Grouped by Category */}
+    <div className="py-6 px-6">
       {Object.entries(productsByCategory).map(
         ([category, categoryProducts]) => (
           <div key={category} className="mb-8">
-            <h2 className="text-lg font-semibold mb-4 text-gray-800">
-              {category}
-              <span className="text-sm text-gray-500 ml-2">
+            <div className="flex items-baseline justify-between mb-4">
+              <h2 className="text-lg font-semibold text-gray-900">
+                {category} Menu
+              </h2>
+              <span className="text-xs text-gray-400">
                 {categoryProducts.length} items
               </span>
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
               {categoryProducts.map((product) => renderProductCard(product))}
             </div>
           </div>
         ),
       )}
 
-      {/* No Products Found Message */}
       {filteredProducts.length === 0 && (
-        <div className="text-center py-12 text-gray-500">No products found</div>
+        <div className="text-center py-12 text-gray-400 text-sm">
+          No products found
+        </div>
       )}
     </div>
   );

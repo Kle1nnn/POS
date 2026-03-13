@@ -1,6 +1,6 @@
 "use client";
 import { Product } from "../components/Product";
-
+import pizza from "../../public/pizza.webp";
 // Default pizza size prices — override per product if different
 const defaultPizzaSizePrices = { S: 400, M: 700, L: 1000 };
 
@@ -11,7 +11,7 @@ export const products: Product[] = [
     description: "Delicious Afghani Style Pizza",
     basePrice: 0,
     sizePrices: defaultPizzaSizePrices,
-    image: "",
+    image: "pizza.webp",
     category: "Pizza",
     sizes: ["S", "M", "L"],
     hasExtraToppings: true,
