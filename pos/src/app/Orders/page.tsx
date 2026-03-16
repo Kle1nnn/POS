@@ -5,6 +5,17 @@ import { useOrders } from "../context/OrdersContext";
 export default function OrdersPage() {
   const { savedOrders, checkoutOrder, deleteOrder } = useOrders();
 
+  const handleDelete = async (orderId: string) => {
+    try {
+      await fetch(`/api/orders?orderCode=${encodeURIComponent(orderId)}`, {
+        method: "DELETE",
+      });
+    } catch (error) {
+      console.error("Failed to delete order from database", error);
+    }
+    deleteOrder(orderId);
+  };
+
   const handleCheckout = async (orderId: string) => {
     try {
       await fetch("/api/orders/checkout", {
@@ -39,23 +50,23 @@ export default function OrdersPage() {
               className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
             >
               {/* Header */}
-              <div className="flex justify-between items-start mb-4">
-                <div>
-                  <p className="font-bold text-gray-900 flex items-center gap-2">
-                    <span>{order.id}</span>
-                    {order.notes && (
-                      <span className="text-xs font-normal text-gray-500 truncate max-w-[180px]">
-                        · {order.notes}
-                      </span>
-                    )}
-                  </p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    {order.createdAt}
-                  </p>
+              <div className="flex justify-between items-start mb-4 gap-4">
+                <div className="flex-1">
+                  <div className="flex items-center justify-between gap-3 mb-1">
+                    <p className="font-bold text-gray-900 text-sm">
+                      {order.id}
+                    </p>
+                    <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2.5 py-1 rounded-full flex-shrink-0">
+                      Saved
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mb-1">{order.createdAt}</p>
+                  {order.notes && (
+                    <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 max-w-full">
+                      {order.notes}
+                    </p>
+                  )}
                 </div>
-                <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2.5 py-1 rounded-full">
-                  Saved
-                </span>
               </div>
 
               {/* Items */}
@@ -101,7 +112,7 @@ export default function OrdersPage() {
                 </span>
                 <div className="flex gap-2">
                   <button
-                    onClick={() => deleteOrder(order.id)}
+                    onClick={() => handleDelete(order.id)}
                     className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
                   >
                     Delete

@@ -37,7 +37,12 @@ export default function DrinksCard({ product }: DrinksCardProps) {
 
   return (
     <div className="bg-[#fdfaf7] rounded-3xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col border border-[#f1e5d8]">
-      <div className="w-full h-28 rounded-2xl bg-[url('/coffee-placeholder.png')] bg-cover bg-center mb-3 bg-[#d3e3f6]" />
+      <div
+        className="w-full h-28 rounded-2xl bg-cover bg-center mb-3 bg-[#d3e3f6]"
+        style={{
+          backgroundImage: `url('/${product.image || "coffee-placeholder.png"}')`,
+        }}
+      />
 
       <div className="mb-3">
         <h3 className="font-semibold text-sm text-gray-900 mb-0.5">

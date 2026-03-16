@@ -4,7 +4,7 @@ import React from "react";
 import { useCategory } from "../context/CategoryContext";
 export default function Navbar() {
   const { selectedCategory, setSelectedCategory } = useCategory();
-  const Menu = ["ALL", "Pizza", "Burger", "Rolls", "Fries", "Drinks"];
+  const Menu = ["ALL", "Pizza", "Burger", "Rolls", "Fries", "Broast", "Drinks"];
 
   return (
     <div className="flex gap-3 px-6 py-6 w-full overflow-x-auto">

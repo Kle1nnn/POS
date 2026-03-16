@@ -21,7 +21,12 @@ export default function FriesCard({ product }: FriesCardProps) {
   return (
     <div className="bg-white rounded-2xl p-4 shadow-sm hover:shadow-md transition-shadow">
       <div className="flex items-start gap-3 mb-4">
-        <div className="w-16 h-16 rounded-xl flex-shrink-0 bg-gradient-to-br from-yellow-600 to-yellow-400" />
+        <div
+          className="w-16 h-16 rounded-xl flex-shrink-0 bg-cover bg-center bg-gradient-to-br from-yellow-600 to-yellow-400"
+          style={{
+            backgroundImage: `url('/${product.image || "coffee-placeholder.png"}')`,
+          }}
+        />
         <div className="flex-1">
           <h3 className="font-semibold text-sm text-gray-900 mb-0.5">
             {product.name}

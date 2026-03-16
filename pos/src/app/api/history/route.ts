@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import  pgPool  from "../../../lib/db";
+import  { pgPool }  from "../../../lib/db";
 
 export async function GET(req: NextRequest) {
   let client;
@@ -37,7 +37,8 @@ export async function GET(req: NextRequest) {
         LEFT JOIN order_items oi ON oi.order_id = o.id
         WHERE o.status = 'checkedout' AND o.business_date = $1::date
         GROUP BY o.id
-        ORDER BY o.created_at DESC;
+        ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
+        LIMIT 10;
       `
       : `
         SELECT
@@ -67,7 +68,8 @@ export async function GET(req: NextRequest) {
         LEFT JOIN order_items oi ON oi.order_id = o.id
         WHERE o.status = 'checkedout'
         GROUP BY o.id
-        ORDER BY o.created_at DESC;
+        ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
+        LIMIT 10;
       `;
 
     const params = businessDate ? [businessDate] : [];

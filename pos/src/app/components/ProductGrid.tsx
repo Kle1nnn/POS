@@ -17,7 +17,8 @@ interface ProductGridProps {
 export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
   const { selectedCategory } = useCategory();
 
-  const filteredProducts = products.filter((product) => {
+  const filteredProducts = products
+    .filter((product) => {
     const matchesCategory =
       selectedCategory === "ALL" || product.category === selectedCategory;
     const query = searchQuery.trim().toLowerCase();
@@ -27,7 +28,8 @@ export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
       product.description.toLowerCase().includes(query);
 
     return matchesCategory && matchesSearch;
-  });
+    })
+    .toSorted((a, b) => a.name.localeCompare(b.name));
 
   const productsByCategory = filteredProducts.reduce(
     (acc, product) => {

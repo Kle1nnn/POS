@@ -12,10 +12,15 @@ export async function GET(req: NextRequest) {
           s.current_business_date AS business_date,
           COALESCE(d.total_revenue, 0) AS total_revenue,
           COALESCE(d.total_orders, 0)  AS total_orders,
-          COALESCE(d.total_items, 0)   AS total_items
+          COALESCE(d.total_items, 0)   AS total_items,
+          COALESCE(a.total_revenue, 0) AS all_time_revenue,
+          COALESCE(a.total_orders, 0)  AS all_time_orders,
+          COALESCE(a.total_items, 0)   AS all_time_items
         FROM store_state s
         LEFT JOIN daily_sales d
           ON d.sale_date = s.current_business_date
+        LEFT JOIN all_time_sales a
+          ON a.id = 1
         WHERE s.id = 1;
       `,
     );
@@ -27,6 +32,9 @@ export async function GET(req: NextRequest) {
           totalRevenue: 0,
           totalOrders: 0,
           totalItems: 0,
+          allTimeRevenue: 0,
+          allTimeOrders: 0,
+          allTimeItems: 0,
         },
         { status: 200 },
       );
@@ -39,6 +47,9 @@ export async function GET(req: NextRequest) {
         totalRevenue: Number(row.total_revenue),
         totalOrders: Number(row.total_orders),
         totalItems: Number(row.total_items),
+        allTimeRevenue: Number(row.all_time_revenue),
+        allTimeOrders: Number(row.all_time_orders),
+        allTimeItems: Number(row.all_time_items),
       },
       { status: 200 },
     );

@@ -9,12 +9,6 @@ interface PizzaCardProps {
   product: Product;
 }
 
-const SIZE_OPTIONS = [
-  { value: "S", label: "S" },
-  { value: "M", label: "M" },
-  { value: "L", label: "L" },
-];
-
 const TOPPING_SIZE_OPTIONS = [
   { value: "S", label: "S" },
   { value: "M", label: "M" },
@@ -29,7 +23,8 @@ const TOPPING_TYPE_OPTIONS = [
 
 export default function PizzaCard({ product }: PizzaCardProps) {
   const { addToCart } = useCart();
-  const [selectedSize, setSelectedSize] = useState("S");
+  const availableSizes = product.sizes?.length ? product.sizes : ["S", "M", "L"];
+  const [selectedSize, setSelectedSize] = useState(availableSizes[0]);
   const [selectedToppingSize, setSelectedToppingSize] = useState("");
   const [selectedToppingType, setSelectedToppingType] = useState("");
 
@@ -59,7 +54,12 @@ export default function PizzaCard({ product }: PizzaCardProps) {
     <div className="bg-white rounded-3xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col border border-[#f1e5d8]">
       {/* Top row: image left, text right */}
       <div className="flex gap-3 mb-4">
-        <div className="w-20 h-24 rounded-2xl bg-[url('/coffee-placeholder.png')] bg-cover bg-center bg-[#e0d2c4]" />
+        <div
+          className="w-20 h-24 rounded-2xl bg-cover bg-center bg-[#e0d2c4]"
+          style={{
+            backgroundImage: `url('/${product.image || "pizzaa.png"}')`,
+          }}
+        />
         <div className="flex-1 flex flex-col justify-between">
           <div>
             <h3 className="font-semibold text-sm text-gray-900 mb-0.5">
@@ -97,10 +97,7 @@ export default function PizzaCard({ product }: PizzaCardProps) {
         <div>
           <ToppingsSelector
             label="Size"
-            options={SIZE_OPTIONS.map((s) => ({
-              value: s.value,
-              label: s.label,
-            }))}
+            options={availableSizes.map((s) => ({ value: s, label: s }))}
             selected={selectedSize}
             onSelect={setSelectedSize}
           />
@@ -124,9 +121,10 @@ export default function PizzaCard({ product }: PizzaCardProps) {
             label="Toppings Type"
             options={TOPPING_TYPE_OPTIONS}
             selected={selectedToppingType}
-            onSelect={(value) =>
-              setSelectedToppingType((prev) => (prev === value ? "" : value))
-            }
+            onSelect={(value) => {
+              if (!selectedToppingSize) return;
+              setSelectedToppingType((prev) => (prev === value ? "" : value));
+            }}
           />
         </div>
       </div>

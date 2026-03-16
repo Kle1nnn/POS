@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useOrders } from "../context/OrdersContext";
 
 type SalesSummary = {
   businessDate: string | null;
   totalRevenue: number;
   totalOrders: number;
   totalItems: number;
+  allTimeRevenue: number;
+  allTimeOrders: number;
+  allTimeItems: number;
 };
 
 export default function HistoryPage() {
-  const { deleteOrder } = useOrders();
   const [businessDate, setBusinessDate] = useState("");
   const [sales, setSales] = useState<SalesSummary | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -73,6 +74,18 @@ export default function HistoryPage() {
     }
   };
 
+  const handleDelete = async (orderCode: string) => {
+    try {
+      await fetch(`/api/orders?orderCode=${encodeURIComponent(orderCode)}`, {
+        method: "DELETE",
+      });
+      await loadStateAndSales();
+    } catch (e) {
+      console.error("Failed to delete order from history", e);
+      alert("Failed to delete order. Check server logs.");
+    }
+  };
+
   return (
     <div className="p-6 max-w-3xl">
       <div className="flex items-center justify-between mb-2 gap-4">
@@ -96,16 +109,18 @@ export default function HistoryPage() {
         </div>
       </div>
       {sales && (
-        <p className="text-sm text-gray-700 mb-2">
-          Total sales today:{" "}
-          <span className="font-semibold">
-            Rs. {sales.totalRevenue.toFixed(0)}
-          </span>{" "}
-          ({sales.totalOrders} orders, {sales.totalItems} items)
-        </p>
+        <div className="text-sm text-gray-700 mb-2 space-y-1">
+          <p>
+            Total sales today:{" "}
+            <span className="font-semibold">
+              Rs. {sales.totalRevenue.toFixed(0)}
+            </span>{" "}
+            ({sales.totalOrders} orders, {sales.totalItems} items)
+          </p>
+        </div>
       )}
       <p className="text-sm text-gray-400 mb-6">
-        All completed and checked out orders.
+        Showing up to the last 10 completed and checked out orders for the selected business date.
       </p>
 
       {orders.length === 0 ? (
@@ -188,7 +203,7 @@ export default function HistoryPage() {
                   Total: Rs. {order.total.toFixed(0)}
                 </span>
                 <button
-                  onClick={() => deleteOrder(order.orderCode)}
+                  onClick={() => handleDelete(order.orderCode)}
                   className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
                 >
                   Remove
