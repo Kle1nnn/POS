@@ -2,6 +2,7 @@
 import { useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrdersContext";
 import { useState } from "react";
+import PrintModal from "./PrintModal";
 
 export default function Billing() {
   const { cartItems, removeFromCart, clearCart, updateQuantity, totalPrice } =
@@ -10,6 +11,13 @@ export default function Billing() {
   const [open, setOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+
+  // Print modal state
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [pendingOrderId, setPendingOrderId] = useState("");
+  const [pendingItems, setPendingItems] = useState(cartItems);
+  const [pendingTotal, setPendingTotal] = useState(totalPrice);
+  const [pendingNotes, setPendingNotes] = useState("");
 
   const showToast = (msg: string) => {
     setToast(msg);
@@ -42,16 +50,21 @@ export default function Billing() {
     } catch (error) {
       console.error("Failed to persist saved order to database", error);
     }
+    // Snapshot cart before clearing
+    setPendingOrderId(orderId);
+    setPendingItems([...cartItems]);
+    setPendingTotal(totalPrice);
+    setPendingNotes(notes);
     clearCart();
     setNotes("");
     showToast("Order saved!");
+    setPrintModalOpen(true);
   };
 
   const handleCheckout = async () => {
     if (cartItems.length === 0) return;
     const orderId = saveOrder([...cartItems], totalPrice, notes);
     try {
-      // 1) Insert as saved
       await fetch("/api/orders", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -71,7 +84,6 @@ export default function Billing() {
           notes,
         }),
       });
-      // 2) Flip to checkedout so trigger fires
       await fetch("/api/orders/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -81,13 +93,28 @@ export default function Billing() {
       console.error("Failed to persist checkout to database", error);
     }
     checkoutOrder(orderId);
+    // Snapshot cart before clearing
+    setPendingOrderId(orderId);
+    setPendingItems([...cartItems]);
+    setPendingTotal(totalPrice);
+    setPendingNotes(notes);
     clearCart();
     setNotes("");
     showToast("Order checked out!");
+    setPrintModalOpen(true);
   };
 
   return (
     <div>
+      <PrintModal
+        isOpen={printModalOpen}
+        onClose={() => setPrintModalOpen(false)}
+        cartItems={pendingItems}
+        totalPrice={pendingTotal}
+        notes={pendingNotes}
+        orderId={pendingOrderId}
+      />
+
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">
           {toast}
@@ -123,23 +150,19 @@ export default function Billing() {
                 className="bg-white rounded-2xl p-3 border border-[#f1e5d8] shadow-sm"
               >
                 <div className="flex gap-3">
-                  {/* Thumbnail placeholder */}
                   <div className="w-10 h-14 rounded-xl bg-gradient-to-b from-[#e0d2c4] to-[#c9b39a]" />
-
                   <div className="flex-1">
                     <div className="flex justify-between items-start">
                       <div>
                         <h3 className="font-semibold text-sm text-gray-900 leading-tight">
                           {item.name}
-                          {item.selectedSize &&
-                            item.selectedSize !== "N/A" && (
-                              <span className="text-gray-500 font-normal">
-                                {" "}
-                                · {item.selectedSize}
-                              </span>
-                            )}
+                          {item.selectedSize && item.selectedSize !== "N/A" && (
+                            <span className="text-gray-500 font-normal">
+                              {" "}
+                              · {item.selectedSize}
+                            </span>
+                          )}
                         </h3>
-
                         {((item.selectedTopping &&
                           item.selectedTopping !== "None") ||
                           (item.selectedSauce &&
@@ -160,7 +183,6 @@ export default function Billing() {
                           </div>
                         )}
                       </div>
-
                       <button
                         onClick={() => removeFromCart(item.cartKey)}
                         className="text-gray-300 hover:text-red-500 transition-colors text-lg leading-none flex-shrink-0"
@@ -178,7 +200,6 @@ export default function Billing() {
                           </span>
                         )}
                       </div>
-
                       <div className="flex items-center gap-2">
                         <button
                           onClick={() =>
@@ -202,7 +223,6 @@ export default function Billing() {
                       </div>
                     </div>
                   </div>
-
                   <div className="flex flex-col items-end justify-between text-right">
                     <span className="font-semibold text-sm text-gray-900">
                       Rs. {(item.price * item.quantity).toFixed(0)}
