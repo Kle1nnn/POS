@@ -27,12 +27,21 @@ type OrdersContextType = {
   saveOrder: (items: CartItem[], total: number, notes?: string) => string;
   checkoutOrder: (orderId: string) => void;
   deleteOrder: (orderId: string) => void;
+  updateOrder: (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes?: string,
+  ) => void;
+  editingOrderId: string | null;
+  setEditingOrderId: (id: string | null) => void;
 };
 
 const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
   // Hydrate from database on first mount
   useEffect(() => {
@@ -105,6 +114,17 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const updateOrder = (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes?: string,
+  ) => {
+    setOrders((prev) =>
+      prev.map((o) => (o.id === orderId ? { ...o, items, total, notes } : o)),
+    );
+  };
+
   const deleteOrder = (orderId: string) => {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
@@ -115,7 +135,16 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
 
   return (
     <OrdersContext.Provider
-      value={{ savedOrders, history, saveOrder, checkoutOrder, deleteOrder }}
+      value={{
+        savedOrders,
+        history,
+        saveOrder,
+        checkoutOrder,
+        deleteOrder,
+        updateOrder,
+        editingOrderId,
+        setEditingOrderId,
+      }}
     >
       {children}
     </OrdersContext.Provider>

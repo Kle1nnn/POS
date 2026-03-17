@@ -75,9 +75,21 @@ function buildReceiptHTML(
   .bold { font-weight: bold; }
   .dotted { border-top: 1px dotted #000; margin: 5px 0; }
   .solid { border-top: 1px solid #000; margin: 5px 0; }
+  .logo-box {
+    width: 64px;
+    height: 64px;
+    border: 2px dashed #bbb;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 4px;
+  }
+  .logo-text { font-size: 9px; color: #aaa; letter-spacing: 1px; }
   .store-title { font-size: 15px; font-weight: bold; letter-spacing: 0.5px; margin: 3px 0 1px; }
   .store-sub { font-size: 11px; margin: 1px 0; }
   .store-phone { font-size: 11px; margin: 1px 0; }
+  .gold { color: #b8860b; font-weight: bold; }
   table { width: 100%; border-collapse: collapse; }
   .meta-table td { font-size: 11px; padding: 1px 0; vertical-align: top; }
   .meta-label { font-weight: bold; width: 68px; }
@@ -100,9 +112,11 @@ function buildReceiptHTML(
 
   <!-- Header -->
   <div class="center">
-    <div class="store-title">TASTY BITES PIZZA &amp; FAST FOOD</div>
+    <div class="logo-box">
+      <span class="logo-text">LOGO</span>
+    </div>
     <div class="store-sub">Kamran Centre, Tharushah</div>
-    <div class="store-phone">Mobile: 03213611550, 03063096900</div>
+    <div class="store-phone">Mobile: <span class="gold">03213611550</span>, <span class="gold">03063096900</span></div>
   </div>
 
   <div class="dotted"></div>

@@ -27,6 +27,7 @@ type CartContextType = {
   removeFromCart: (cartKey: string) => void;
   clearCart: () => void;
   updateQuantity: (cartKey: string, newQuantity: number) => void;
+  loadOrder: (items: CartItem[]) => void;
   totalPrice: number;
 };
 
@@ -57,6 +58,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
 
   const clearCart = () => setCartItems([]);
 
+  const loadOrder = (items: CartItem[]) => {
+    setCartItems(items.map((i) => ({ ...i, quantity: i.quantity || 1 })));
+  };
+
   const updateQuantity = (cartKey: string, newQuantity: number) => {
     if (newQuantity < 1) {
       removeFromCart(cartKey);
@@ -82,6 +87,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         clearCart,
         updateQuantity,
+        loadOrder,
         totalPrice,
       }}
     >

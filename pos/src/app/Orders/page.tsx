@@ -1,9 +1,25 @@
 "use client";
 
 import { useOrders } from "../context/OrdersContext";
+import { useCart } from "../context/CartContext";
+import { useRouter } from "next/navigation";
 
 export default function OrdersPage() {
-  const { savedOrders, checkoutOrder, deleteOrder } = useOrders();
+  const { savedOrders, checkoutOrder, deleteOrder, setEditingOrderId } =
+    useOrders();
+  const { loadOrder } = useCart();
+  const router = useRouter();
+
+  const handleEdit = (orderId: string) => {
+    const order = savedOrders.find((o) => o.id === orderId);
+    if (!order) return;
+    // Load the order's items into the cart
+    loadOrder(order.items);
+    // Tell Billing we're editing this order
+    setEditingOrderId(orderId);
+    // Navigate to main page
+    router.push("/");
+  };
 
   const handleDelete = async (orderId: string) => {
     try {
@@ -60,7 +76,9 @@ export default function OrdersPage() {
                       Saved
                     </span>
                   </div>
-                  <p className="text-xs text-gray-400 mb-1">{order.createdAt}</p>
+                  <p className="text-xs text-gray-400 mb-1">
+                    {order.createdAt}
+                  </p>
                   {order.notes && (
                     <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 max-w-full">
                       {order.notes}
@@ -111,6 +129,12 @@ export default function OrdersPage() {
                   Total: Rs. {order.total.toFixed(0)}
                 </span>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => handleEdit(order.id)}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors"
+                  >
+                    ✏️ Edit
+                  </button>
                   <button
                     onClick={() => handleDelete(order.id)}
                     className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"

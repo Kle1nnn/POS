@@ -1,16 +1,26 @@
 "use client";
 import { useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrdersContext";
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import PrintModal from "./PrintModal";
 
 export default function Billing() {
   const { cartItems, removeFromCart, clearCart, updateQuantity, totalPrice } =
     useCart();
-  const { saveOrder, checkoutOrder } = useOrders();
+  const {
+    saveOrder,
+    checkoutOrder,
+    updateOrder,
+    editingOrderId,
+    setEditingOrderId,
+    savedOrders,
+  } = useOrders();
+  const router = useRouter();
   const [open, setOpen] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [updating, setUpdating] = useState(false);
 
   // Print modal state
   const [printModalOpen, setPrintModalOpen] = useState(false);
@@ -19,9 +29,73 @@ export default function Billing() {
   const [pendingTotal, setPendingTotal] = useState(totalPrice);
   const [pendingNotes, setPendingNotes] = useState("");
 
+  const isEditMode = !!editingOrderId;
+
+  // Pre-fill notes when entering edit mode
+  useEffect(() => {
+    if (editingOrderId) {
+      const order = savedOrders.find((o) => o.id === editingOrderId);
+      if (order?.notes !== undefined) setNotes(order.notes ?? "");
+    }
+  }, [editingOrderId]);
+
   const showToast = (msg: string) => {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
+  };
+
+  const handleUpdateOrder = async () => {
+    if (cartItems.length === 0 || !editingOrderId) return;
+    setUpdating(true);
+    try {
+      const res = await fetch("/api/orders", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderCode: editingOrderId,
+          items: cartItems.map((item) => ({
+            id: item.id,
+            name: item.name,
+            category: item.category,
+            selectedSize: item.selectedSize,
+            selectedTopping: item.selectedTopping,
+            selectedSauce: item.selectedSauce,
+            price: item.price,
+            quantity: item.quantity,
+          })),
+          total: totalPrice,
+          notes,
+        }),
+      });
+
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        throw new Error(
+          (errData as { error?: string }).error || `HTTP ${res.status}`,
+        );
+      }
+
+      // Update local context too
+      updateOrder(editingOrderId, [...cartItems], totalPrice, notes);
+      setEditingOrderId(null);
+      clearCart();
+      setNotes("");
+      showToast("Order updated!");
+      router.push("/Orders");
+    } catch (error) {
+      console.error("Failed to update order", error);
+      showToast(
+        `Update failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingOrderId(null);
+    clearCart();
+    setNotes("");
   };
 
   const handleSaveOrder = async () => {
@@ -249,26 +323,49 @@ export default function Billing() {
           />
 
           <div className="space-y-1.5">
-            <button
-              onClick={handleSaveOrder}
-              disabled={cartItems.length === 0}
-              className="w-full bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-800 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              💾 Save Order
-            </button>
-            <button
-              onClick={handleCheckout}
-              disabled={cartItems.length === 0}
-              className="w-full bg-amber-900 text-white py-2 rounded-lg hover:bg-amber-800 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-            >
-              ✅ Checkout
-            </button>
-            <button
-              onClick={clearCart}
-              className="w-full bg-gray-200 text-gray-700 py-1.5 rounded-lg hover:bg-gray-300 transition-colors text-[0.7rem]"
-            >
-              Clear Cart
-            </button>
+            {isEditMode ? (
+              <>
+                <div className="text-xs text-center text-blue-600 font-semibold bg-blue-50 rounded-lg py-1.5 px-2">
+                  ✏️ Editing order {editingOrderId?.slice(-6).toUpperCase()}
+                </div>
+                <button
+                  onClick={handleUpdateOrder}
+                  disabled={cartItems.length === 0 || updating}
+                  className="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {updating ? "Updating…" : "💾 Update Order"}
+                </button>
+                <button
+                  onClick={handleCancelEdit}
+                  className="w-full bg-gray-200 text-gray-700 py-1.5 rounded-lg hover:bg-gray-300 transition-colors text-[0.7rem]"
+                >
+                  Cancel Edit
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveOrder}
+                  disabled={cartItems.length === 0}
+                  className="w-full bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-800 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  💾 Save Order
+                </button>
+                <button
+                  onClick={handleCheckout}
+                  disabled={cartItems.length === 0}
+                  className="w-full bg-amber-900 text-white py-2 rounded-lg hover:bg-amber-800 text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  ✅ Checkout
+                </button>
+                <button
+                  onClick={clearCart}
+                  className="w-full bg-gray-200 text-gray-700 py-1.5 rounded-lg hover:bg-gray-300 transition-colors text-[0.7rem]"
+                >
+                  Clear Cart
+                </button>
+              </>
+            )}
           </div>
         </div>
       </aside>

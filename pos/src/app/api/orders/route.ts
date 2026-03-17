@@ -20,6 +20,93 @@ type SaveOrderBody = {
   status?: "saved" | "checkedout";
 };
 
+type UpdateOrderBody = {
+  orderCode: string;
+  items: CartItemPayload[];
+  total: number;
+  notes?: string;
+};
+
+export async function PATCH(req: NextRequest) {
+  let client;
+  try {
+    const body = (await req.json()) as UpdateOrderBody;
+    const { orderCode, items, total, notes } = body;
+
+    console.log("[PATCH /api/orders] Updating orderCode:", orderCode);
+
+    if (!orderCode) {
+      return NextResponse.json({ error: "orderCode is required" }, { status: 400 });
+    }
+    if (!items || items.length === 0) {
+      return NextResponse.json({ error: "Order must have at least one item" }, { status: 400 });
+    }
+
+    client = await pgPool.connect();
+    await client.query("BEGIN");
+
+    const orderResult = await client.query(
+      `SELECT id, status FROM orders WHERE order_code = $1 FOR UPDATE`,
+      [orderCode]
+    );
+
+    console.log("[PATCH /api/orders] Found rows:", orderResult.rowCount, orderResult.rows);
+
+    if (orderResult.rowCount === 0) {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Order not found" }, { status: 404 });
+    }
+
+    const { id: orderId, status } = orderResult.rows[0];
+
+    if (status === "checkedout") {
+      await client.query("ROLLBACK");
+      return NextResponse.json({ error: "Cannot edit a checked-out order" }, { status: 400 });
+    }
+
+    await client.query(
+      `UPDATE orders SET total = $1, notes = $2 WHERE id = $3`,
+      [total, notes ?? null, orderId]
+    );
+
+    await client.query(`DELETE FROM order_items WHERE order_id = $1`, [orderId]);
+
+    const insertItemText = `
+      INSERT INTO order_items (
+        order_id, product_id, product_name, category,
+        selected_size, selected_topping, selected_sauce,
+        unit_price, quantity
+      ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+    `;
+
+    for (const item of items) {
+      const productId = Number.isNaN(Number(item.id)) ? null : Number(item.id);
+      await client.query(insertItemText, [
+        orderId,
+        productId,
+        item.name,
+        item.category ?? null,
+        item.selectedSize ?? null,
+        item.selectedTopping ?? null,
+        item.selectedSauce ?? null,
+        item.price,
+        item.quantity,
+      ]);
+    }
+
+    await client.query("COMMIT");
+    console.log("[PATCH /api/orders] Successfully updated orderCode:", orderCode);
+
+    return NextResponse.json({ success: true, orderCode }, { status: 200 });
+  } catch (err) {
+    if (client) await client.query("ROLLBACK");
+    console.error("[PATCH /api/orders] Error:", err);
+    return NextResponse.json({ error: "Failed to update order" }, { status: 500 });
+  } finally {
+    if (client) client.release();
+  }
+}
+
 export async function POST(req: NextRequest) {
   let client;
   try {
@@ -229,4 +316,3 @@ export async function DELETE(req: NextRequest) {
     }
   }
 }
-
