@@ -40,6 +40,8 @@ export default function Billing() {
   const [suggestions, setSuggestions] = useState<Customer[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeIndex, setActiveIndex] = useState(-1);
+  const [isSavingCustomer, setIsSavingCustomer] = useState(false);
+  const [customerSaved, setCustomerSaved] = useState(false);
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
 
@@ -119,6 +121,7 @@ export default function Billing() {
   const handleCustomerNameChange = (val: string) => {
     setCustomerName(val);
     setActiveIndex(-1);
+    setCustomerSaved(false);
     setShowSuggestions(true);
     fetchSuggestions(val);
   };
@@ -153,6 +156,7 @@ export default function Billing() {
 
   const saveCustomerIfNew = async () => {
     if (!customerName.trim()) return;
+    setIsSavingCustomer(true);
     try {
       await fetch("/api/customers", {
         method: "POST",
@@ -162,8 +166,11 @@ export default function Billing() {
           phone: customerPhone.trim(),
         }),
       });
+      setCustomerSaved(true);
     } catch {
       /* silently ignore */
+    } finally {
+      setIsSavingCustomer(false);
     }
   };
 
@@ -198,6 +205,7 @@ export default function Billing() {
     setNotes("");
     setCustomerName("");
     setCustomerPhone("");
+    setCustomerSaved(false);
     setOrderType("Delivery");
     setTableNumber(null);
     setOrderTypeOpen(false);
@@ -275,7 +283,6 @@ export default function Billing() {
 
   const handleSaveOrder = async () => {
     if (cartItems.length === 0) return;
-    await saveCustomerIfNew();
     const orderId = saveOrder(
       [...cartItems],
       totalPrice,
@@ -328,7 +335,6 @@ export default function Billing() {
 
   const handleCheckout = async () => {
     if (cartItems.length === 0) return;
-    await saveCustomerIfNew();
     const orderId = saveOrder(
       [...cartItems],
       totalPrice,
@@ -652,6 +658,26 @@ export default function Billing() {
             placeholder="📞 Phone number..."
             className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-amber-900/20"
           />
+
+          {/* Save customer button — only shows when name is typed */}
+          {customerName.trim() && (
+            <button
+              onClick={saveCustomerIfNew}
+              disabled={isSavingCustomer || customerSaved}
+              className={`w-full py-1.5 rounded-lg text-xs font-semibold transition-all border
+                ${
+                  customerSaved
+                    ? "bg-green-50 text-green-700 border-green-200 cursor-default"
+                    : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
+                } disabled:opacity-60`}
+            >
+              {isSavingCustomer
+                ? "Saving…"
+                : customerSaved
+                  ? "✓ Customer saved"
+                  : "💾 Save customer"}
+            </button>
+          )}
 
           {/* Notes */}
           <textarea
