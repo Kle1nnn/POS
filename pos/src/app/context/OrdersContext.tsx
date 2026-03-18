@@ -12,6 +12,11 @@ import { CartItem } from "./CartContext"; // both files live in src/context/
 export type OrderStatus = "saved" | "checkedout";
 
 export interface Order {
+  // customer + order type fields
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
   id: string;
   items: CartItem[]; // full snapshot of cart at save time, includes cartKey
   total: number;
@@ -24,7 +29,15 @@ export interface Order {
 type OrdersContextType = {
   savedOrders: Order[];
   history: Order[];
-  saveOrder: (items: CartItem[], total: number, notes?: string) => string;
+  saveOrder: (
+    items: CartItem[],
+    total: number,
+    notes?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
+  ) => string;
   checkoutOrder: (orderId: string) => void;
   deleteOrder: (orderId: string) => void;
   updateOrder: (
@@ -55,6 +68,10 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             status: OrderStatus;
             total: number;
             notes?: string;
+            customerName?: string;
+            customerPhone?: string;
+            orderType?: string;
+            tableNumber?: number | null;
             createdAt: string;
             checkedOutAt?: string;
             items: CartItem[];
@@ -68,6 +85,10 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
                 items: o.items,
                 total: o.total,
                 notes: o.notes,
+                customerName: o.customerName,
+                customerPhone: o.customerPhone,
+                orderType: o.orderType,
+                tableNumber: o.tableNumber,
                 createdAt: o.createdAt,
                 status: o.status,
                 checkedOutAt: o.checkedOutAt,
@@ -85,6 +106,10 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     items: CartItem[],
     total: number,
     notes?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
   ): string => {
     const id = `ORD-${Date.now()}`;
     const newOrder: Order = {
@@ -92,6 +117,10 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
       items,
       total,
       notes,
+      customerName,
+      customerPhone,
+      orderType,
+      tableNumber,
       createdAt: new Date().toLocaleString(),
       status: "saved",
     };

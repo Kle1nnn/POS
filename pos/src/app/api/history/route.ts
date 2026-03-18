@@ -15,6 +15,10 @@ export async function GET(req: NextRequest) {
           o.status,
           o.total,
           o.notes,
+          o.customer_name,
+          o.customer_phone,
+          o.order_type,
+          o.table_number,
           o.created_at,
           o.checked_out_at,
           COALESCE(
@@ -46,6 +50,10 @@ export async function GET(req: NextRequest) {
           o.status,
           o.total,
           o.notes,
+          o.customer_name,
+          o.customer_phone,
+          o.order_type,
+          o.table_number,
           o.created_at,
           o.checked_out_at,
           COALESCE(
@@ -101,4 +109,3 @@ export async function GET(req: NextRequest) {
     }
   }
 }
-

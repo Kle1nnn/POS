@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import PrintModal from "../components/PrintModal";
+import { CartItem } from "../context/CartContext";
 
 type SalesSummary = {
   businessDate: string | null;
@@ -16,6 +18,32 @@ export default function HistoryPage() {
   const [businessDate, setBusinessDate] = useState("");
   const [sales, setSales] = useState<SalesSummary | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
+
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState<{
+    id: string;
+    items: CartItem[];
+    total: number;
+    notes: string;
+  } | null>(null);
+
+  const openPrint = (order: any) => {
+    const items: CartItem[] = (order.items || []).map((item: any) => ({
+      ...item,
+      cartKey:
+        item.cartKey ??
+        `${item.name}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}`,
+      quantity: item.quantity ?? 1,
+      price: item.price ?? item.unit_price ?? 0,
+    }));
+    setPrintOrder({
+      id: order.orderCode,
+      items,
+      total: Number(order.total),
+      notes: order.notes ?? "",
+    });
+    setPrintModalOpen(true);
+  };
 
   const loadStateAndSales = async () => {
     try {
@@ -88,10 +116,19 @@ export default function HistoryPage() {
 
   return (
     <div className="p-6 max-w-3xl">
+      {printOrder && (
+        <PrintModal
+          isOpen={printModalOpen}
+          onClose={() => setPrintModalOpen(false)}
+          cartItems={printOrder.items}
+          totalPrice={printOrder.total}
+          notes={printOrder.notes}
+          orderId={printOrder.id}
+          isPaid={true}
+        />
+      )}
       <div className="flex items-center justify-between mb-2 gap-4">
-        <h1 className="text-2xl font-bold text-gray-900">
-          🕐 Order History
-        </h1>
+        <h1 className="text-2xl font-bold text-gray-900">🕐 Order History</h1>
         <div className="flex items-center gap-2 text-xs">
           <span className="text-gray-500">Business date:</span>
           <input
@@ -120,7 +157,8 @@ export default function HistoryPage() {
         </div>
       )}
       <p className="text-sm text-gray-400 mb-6">
-        Showing up to the last 10 completed and checked out orders for the selected business date.
+        Showing up to the last 10 completed and checked out orders for the
+        selected business date.
       </p>
 
       {orders.length === 0 ? (
@@ -139,14 +177,35 @@ export default function HistoryPage() {
               {/* Header */}
               <div className="flex justify-between items-start mb-4">
                 <div>
-                  <p className="font-bold text-gray-900 flex items-center gap-2">
-                    <span>{order.orderCode}</span>
-                    {order.notes && (
-                      <span className="text-xs font-normal text-gray-500 truncate max-w-[180px]">
-                        · {order.notes}
+                  <p className="font-bold text-gray-900">{order.orderCode}</p>
+                  <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                    {order.order_type && (
+                      <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
+                        {order.order_type === "Dine In" && order.table_number
+                          ? `🍽️ Dine In · Table #${order.table_number}`
+                          : order.order_type === "Delivery"
+                            ? "🛵 Delivery"
+                            : order.order_type === "Dine In"
+                              ? "🍽️ Dine In"
+                              : "🥡 Take Away"}
                       </span>
                     )}
-                  </p>
+                    {order.customer_name && (
+                      <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                        👤 {order.customer_name}
+                      </span>
+                    )}
+                    {order.customer_phone && (
+                      <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
+                        📞 {order.customer_phone}
+                      </span>
+                    )}
+                  </div>
+                  {order.notes && (
+                    <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 mt-1">
+                      📝 {order.notes}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-400 mt-0.5">
                     Placed: {order.createdAt}
                   </p>
@@ -202,12 +261,20 @@ export default function HistoryPage() {
                 <span className="font-bold text-gray-900">
                   Total: Rs. {order.total.toFixed(0)}
                 </span>
-                <button
-                  onClick={() => handleDelete(order.orderCode)}
-                  className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
-                >
-                  Remove
-                </button>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => openPrint(order)}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold transition-colors"
+                  >
+                    🖨️ Print
+                  </button>
+                  <button
+                    onClick={() => handleDelete(order.orderCode)}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
+                  >
+                    Remove
+                  </button>
+                </div>
               </div>
             </div>
           ))}

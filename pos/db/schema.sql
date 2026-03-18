@@ -146,3 +146,8 @@ EXECUTE FUNCTION apply_sales_aggregates_for_order();
 
 COMMIT;
 
+ALTER TABLE orders
+  ADD COLUMN IF NOT EXISTS customer_name text NULL,
+  ADD COLUMN IF NOT EXISTS customer_phone text NULL,
+  ADD COLUMN IF NOT EXISTS order_type text NOT NULL DEFAULT 'Delivery',
+  ADD COLUMN IF NOT EXISTS table_number integer NULL;

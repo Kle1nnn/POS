@@ -10,6 +10,10 @@ interface PrintModalProps {
   totalPrice: number;
   notes: string;
   orderId: string;
+  isPaid?: boolean;
+  customer?: { name: string; phone: string };
+  orderType?: string;
+  tableNumber?: number | null;
 }
 
 function buildReceiptHTML(
@@ -17,6 +21,10 @@ function buildReceiptHTML(
   totalPrice: number,
   notes: string,
   orderId: string,
+  isPaid: boolean,
+  customer?: { name: string; phone: string },
+  orderType?: string,
+  tableNumber?: number | null,
 ): string {
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-PK", {
@@ -66,7 +74,8 @@ function buildReceiptHTML(
   body {
     font-family: 'Courier New', Courier, monospace;
     width: 76mm;
-    padding: 4mm 5mm;
+    margin: 0 auto;
+    padding: 4mm 4mm;
     font-size: 11px;
     color: #000;
   }
@@ -90,22 +99,34 @@ function buildReceiptHTML(
   .store-sub { font-size: 11px; margin: 1px 0; }
   .store-phone { font-size: 11px; margin: 1px 0; }
   .gold { color: #b8860b; font-weight: bold; }
+  .paid-stamp {
+    text-align: center;
+    margin: 8px 0 4px;
+    padding: 6px 0;
+    border: 3px solid #1a7a1a;
+    border-radius: 4px;
+    color: #1a7a1a;
+    font-size: 28px;
+    font-weight: bold;
+    letter-spacing: 6px;
+  }
   table { width: 100%; border-collapse: collapse; }
   .meta-table td { font-size: 11px; padding: 1px 0; vertical-align: top; }
-  .meta-label { font-weight: bold; width: 68px; }
+  .meta-label { font-weight: bold; display: inline-block; width: 72px; }
   .meta-right { text-align: right; font-size: 11px; }
   .items-head th { font-size: 10px; font-weight: bold; padding: 2px 2px; border-bottom: 1px solid #000; border-top: 1px solid #000; }
   .totals-table td { font-size: 12px; padding: 2px 2px; }
   .grand-total td { font-size: 13px; font-weight: bold; padding: 3px 2px; border-top: 1px solid #000; border-bottom: 1px solid #000; }
   .payment-box {
-    border: 1px solid #000;
-    padding: 4px 6px;
+    border: 2px solid #000;
+    padding: 5px 6px;
     margin-top: 6px;
     font-size: 11px;
+    font-weight: bold;
   }
-  .payment-box .title { font-weight: bold; text-align: center; margin-bottom: 3px; font-size: 12px; }
+  .payment-box .title { font-weight: bold; text-align: center; margin-bottom: 3px; font-size: 13px; text-decoration: underline; }
   .payment-grid { display: flex; justify-content: space-between; }
-  .payment-person { font-size: 10px; line-height: 1.4; }
+  .payment-person { font-size: 11px; line-height: 1.5; font-weight: bold; }
 </style>
 </head>
 <body>
@@ -121,29 +142,25 @@ function buildReceiptHTML(
 
   <div class="dotted"></div>
 
-  <!-- Order meta: order# right, fields left -->
+  <!-- Order meta -->
   <table class="meta-table">
     <tr>
-      <td>
-        <span class="meta-label">Date</span>
-        <span>${dateStr} ${timeStr}</span>
-      </td>
-      <td class="meta-right" rowspan="5" style="vertical-align:top;padding-left:4px;">
-        <span style="font-size:10px;">2026/${shortOrderId}</span><br/>
-        <span style="font-size:10px;">${dateStr} ${timeStr}</span>
+      <td><span class="meta-label">Date</span> <span>${dateStr} ${timeStr}</span></td>
+      <td class="meta-right" style="vertical-align:top;padding-left:4px;white-space:nowrap;">
+        <span style="font-size:10px;">#${shortOrderId}</span>
       </td>
     </tr>
     <tr>
-      <td><span class="meta-label">Table</span></td>
+      <td><span class="meta-label">Type:</span> <span style="font-weight:bold;">${orderType ?? "Delivery"}</span></td>
     </tr>
     <tr>
-      <td><span class="meta-label">Customer</span></td>
+      <td><span class="meta-label">Table:</span> <span>${orderType === "Dine In" && tableNumber ? `#${tableNumber}` : "—"}</span></td>
     </tr>
     <tr>
-      <td><span class="meta-label">Dine In</span></td>
+      <td><span class="meta-label">Customer:</span> <span>${customer?.name || "—"}</span></td>
     </tr>
     <tr>
-      <td><span class="meta-label">Mobile:</span> <span>N-A</span></td>
+      <td><span class="meta-label">Mobile:</span> <span>${customer?.phone || "N-A"}</span></td>
     </tr>
   </table>
 
@@ -190,6 +207,8 @@ function buildReceiptHTML(
     </tr>
   </table>
 
+  ${isPaid ? `<div class="paid-stamp">✓ PAID</div>` : ""}
+
   <!-- Online Payment box -->
   <div class="payment-box">
     <div class="title">Online Payment</div>
@@ -216,6 +235,10 @@ export default function PrintModal({
   totalPrice,
   notes,
   orderId,
+  isPaid = false,
+  customer,
+  orderType,
+  tableNumber,
 }: PrintModalProps) {
   const {
     status,
@@ -231,7 +254,16 @@ export default function PrintModal({
   const [printSuccess, setPrintSuccess] = useState(false);
   const overlayRef = useRef<HTMLDivElement>(null);
 
-  const receiptHTML = buildReceiptHTML(cartItems, totalPrice, notes, orderId);
+  const receiptHTML = buildReceiptHTML(
+    cartItems,
+    totalPrice,
+    notes,
+    orderId,
+    isPaid,
+    customer,
+    orderType,
+    tableNumber,
+  );
 
   // Close on backdrop click
   const handleBackdropClick = (e: React.MouseEvent) => {

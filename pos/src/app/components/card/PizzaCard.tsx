@@ -2,138 +2,102 @@
 import React, { useState } from "react";
 import { Product } from "../Product";
 import { useCart, makeCartKey } from "../../context/CartContext";
-import { toppingsPrice } from "../priceRules";
-import ToppingsSelector from "../ToppingsSelector";
 
 interface PizzaCardProps {
   product: Product;
 }
 
-const TOPPING_SIZE_OPTIONS = [
-  { value: "S", label: "S" },
-  { value: "M", label: "M" },
-  { value: "L", label: "L" },
-];
-
-const TOPPING_TYPE_OPTIONS = [
-  { value: "Cheese", label: "Che" },
-  { value: "Chicken", label: "Chi" },
-  { value: "Mixed", label: "Mixed" },
-];
-
 export default function PizzaCard({ product }: PizzaCardProps) {
   const { addToCart } = useCart();
-  const availableSizes = product.sizes?.length ? product.sizes : ["S", "M", "L"];
+  const availableSizes = product.sizes?.length
+    ? product.sizes
+    : ["S", "M", "L"];
   const [selectedSize, setSelectedSize] = useState(availableSizes[0]);
-  const [selectedToppingSize, setSelectedToppingSize] = useState("");
-  const [selectedToppingType, setSelectedToppingType] = useState("");
 
   const sizePrice = product.sizePrices?.[selectedSize] ?? product.basePrice;
-  const toppingPrice = selectedToppingSize
-    ? (toppingsPrice[selectedToppingSize] ?? 0)
-    : 0;
-  const finalPrice = sizePrice + toppingPrice;
 
-  const handleAddToBilling = () => {
-    const cartKey = makeCartKey(
-      product.id,
-      selectedSize,
-      `${selectedToppingSize || "None"}-${selectedToppingType || "None"}`,
-    );
+  const handleAdd = () => {
     addToCart({
       ...product,
-      cartKey,
+      cartKey: makeCartKey(product.id, selectedSize),
       selectedSize,
-      selectedTopping: selectedToppingSize || "None",
-      selectedSauce: selectedToppingType || "None",
-      price: finalPrice,
+      selectedTopping: "None",
+      selectedSauce: "None",
+      price: sizePrice,
     });
   };
 
+  const SIZE_STYLE: Record<
+    string,
+    { dot: string; active: string; inactive: string }
+  > = {
+    S: {
+      dot: "w-2 h-2",
+      active: "bg-[#2d7a2d] text-white border-[#2d7a2d]",
+      inactive: "bg-white text-[#2d7a2d] border-[#c8e6c9] hover:bg-[#f0faf0]",
+    },
+    M: {
+      dot: "w-3 h-3",
+      active: "bg-[#2d7a2d] text-white border-[#2d7a2d]",
+      inactive: "bg-white text-[#2d7a2d] border-[#c8e6c9] hover:bg-[#f0faf0]",
+    },
+    L: {
+      dot: "w-4 h-4",
+      active: "bg-[#2d7a2d] text-white border-[#2d7a2d]",
+      inactive: "bg-white text-[#2d7a2d] border-[#c8e6c9] hover:bg-[#f0faf0]",
+    },
+  };
+
   return (
-    <div className="bg-white rounded-3xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col border border-[#f1e5d8]">
-      {/* Top row: image left, text right */}
-      <div className="flex gap-3 mb-4">
-        <div
-          className="w-20 h-24 rounded-2xl bg-cover bg-center bg-[#e0d2c4]"
-          style={{
-            backgroundImage: `url('/${product.image || "pizzaa.png"}')`,
-          }}
-        />
-        <div className="flex-1 flex flex-col justify-between">
-          <div>
-            <h3 className="font-semibold text-sm text-gray-900 mb-0.5">
-              {product.name}
-            </h3>
-            <p className="text-xs text-gray-500 mb-1">{product.description}</p>
-          </div>
-          <p className="text-lg font-bold text-gray-900 tracking-tight">
-            Rs. {finalPrice.toFixed(0)}
-          </p>
-        </div>
+    <div className="bg-white rounded-2xl border border-[#f1e5d8] shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden">
+      {/* Image */}
+      <div
+        className="w-full h-24 bg-cover bg-center bg-[#f5ede3]"
+        style={{ backgroundImage: `url('/${product.image || "pizzaa.png"}')` }}
+      />
+
+      {/* Name + price */}
+      <div className="px-3 pt-2 pb-1">
+        <h3 className="font-semibold text-xs text-gray-900 leading-tight line-clamp-2 min-h-[2.2rem]">
+          {product.name}
+        </h3>
+        <p className="text-sm font-bold text-[#5b3722] mt-0.5">
+          Rs. {sizePrice.toFixed(0)}
+        </p>
       </div>
 
-      {/* Options grid: Mood / Size / Sugar(Toppings) / Ice(Toppings Type) */}
-      <div className="grid grid-cols-2 gap-y-3 gap-x-6 mb-4">
-        {/* Mood */}
-        <div>
-          <div className="text-[0.7rem] font-medium text-gray-600 mb-1">
-            Mood
-          </div>
-          <div className="flex gap-1.5">
-            <div className="w-7 h-7 rounded-full bg-[#ffe6d5] flex items-center justify-center text-xs">
-              🔥
-            </div>
-            <div className="w-7 h-7 rounded-full bg-[#e3f2ff] flex items-center justify-center text-xs">
-              ❄️
-            </div>
-            <div className="w-7 h-7 rounded-full bg-[#ffeef5] flex items-center justify-center text-xs">
-              🙂
-            </div>
-          </div>
-        </div>
-
-        {/* Size */}
-        <div>
-          <ToppingsSelector
-            label="Size"
-            options={availableSizes.map((s) => ({ value: s, label: s }))}
-            selected={selectedSize}
-            onSelect={setSelectedSize}
-          />
-        </div>
-
-        {/* Sugar -> Toppings size */}
-        <div>
-          <ToppingsSelector
-            label="Toppings"
-            options={TOPPING_SIZE_OPTIONS}
-            selected={selectedToppingSize}
-            onSelect={(value) =>
-              setSelectedToppingSize((prev) => (prev === value ? "" : value))
-            }
-          />
-        </div>
-
-        {/* Ice -> Toppings type */}
-        <div>
-          <ToppingsSelector
-            label="Toppings Type"
-            options={TOPPING_TYPE_OPTIONS}
-            selected={selectedToppingType}
-            onSelect={(value) => {
-              if (!selectedToppingSize) return;
-              setSelectedToppingType((prev) => (prev === value ? "" : value));
-            }}
-          />
+      {/* Size selector */}
+      <div className="px-3 pb-2">
+        <p className="text-[0.6rem] text-gray-400 font-medium mb-1.5 uppercase tracking-wide">
+          Size
+        </p>
+        <div className="flex gap-1.5">
+          {availableSizes.map((size) => {
+            const isActive = selectedSize === size;
+            const s = SIZE_STYLE[size] ?? SIZE_STYLE["M"];
+            return (
+              <button
+                key={size}
+                onClick={() => setSelectedSize(size)}
+                className={`flex-1 h-9 rounded-xl text-[0.7rem] font-bold transition-all border flex items-center justify-center gap-1.5
+                  ${isActive ? s.active : s.inactive}`}
+              >
+                {/* Visual dot showing relative size */}
+                <span
+                  className={`rounded-full flex-shrink-0 ${s.dot} ${isActive ? "bg-white/60" : "bg-[#2d7a2d]/30"}`}
+                />
+                {size}
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <button
-        onClick={handleAddToBilling}
-        className="mt-auto w-full bg-[#5b3722] text-white py-3 rounded-2xl font-semibold text-sm hover:bg-[#4a2d1b] transition-colors"
+        onClick={handleAdd}
+        className="mx-3 mb-3 py-2 rounded-xl bg-[#5b3722] text-white text-xs font-semibold hover:bg-[#4a2d1b] transition-colors"
       >
-        Add to Billing
+        + Add
       </button>
     </div>
   );

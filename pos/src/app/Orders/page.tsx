@@ -1,8 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import { useOrders } from "../context/OrdersContext";
 import { useCart } from "../context/CartContext";
 import { useRouter } from "next/navigation";
+import PrintModal from "../components/PrintModal";
+import { CartItem } from "../context/CartContext";
 
 export default function OrdersPage() {
   const { savedOrders, checkoutOrder, deleteOrder, setEditingOrderId } =
@@ -10,14 +13,31 @@ export default function OrdersPage() {
   const { loadOrder } = useCart();
   const router = useRouter();
 
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState<{
+    id: string;
+    items: CartItem[];
+    total: number;
+    notes: string;
+    isPaid: boolean;
+  } | null>(null);
+
+  const openPrint = (order: (typeof savedOrders)[0], isPaid: boolean) => {
+    setPrintOrder({
+      id: order.id,
+      items: order.items,
+      total: order.total,
+      notes: order.notes ?? "",
+      isPaid,
+    });
+    setPrintModalOpen(true);
+  };
+
   const handleEdit = (orderId: string) => {
     const order = savedOrders.find((o) => o.id === orderId);
     if (!order) return;
-    // Load the order's items into the cart
     loadOrder(order.items);
-    // Tell Billing we're editing this order
     setEditingOrderId(orderId);
-    // Navigate to main page
     router.push("/");
   };
 
@@ -33,6 +53,7 @@ export default function OrdersPage() {
   };
 
   const handleCheckout = async (orderId: string) => {
+    const order = savedOrders.find((o) => o.id === orderId);
     try {
       await fetch("/api/orders/checkout", {
         method: "POST",
@@ -43,10 +64,22 @@ export default function OrdersPage() {
       console.error("Failed to checkout order in database", error);
     }
     checkoutOrder(orderId);
+    if (order) openPrint(order, true);
   };
 
   return (
     <div className="p-6 max-w-3xl">
+      {printOrder && (
+        <PrintModal
+          isOpen={printModalOpen}
+          onClose={() => setPrintModalOpen(false)}
+          cartItems={printOrder.items}
+          totalPrice={printOrder.total}
+          notes={printOrder.notes}
+          orderId={printOrder.id}
+          isPaid={printOrder.isPaid}
+        />
+      )}
       <h1 className="text-2xl font-bold text-gray-900 mb-1">📋 Saved Orders</h1>
       <p className="text-sm text-gray-400 mb-6">
         Orders saved from billing. Checkout when ready.
@@ -79,9 +112,32 @@ export default function OrdersPage() {
                   <p className="text-xs text-gray-400 mb-1">
                     {order.createdAt}
                   </p>
+                  <div className="flex flex-wrap gap-1 mb-1">
+                    {order.orderType && (
+                      <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
+                        {order.orderType === "Dine In" && order.tableNumber
+                          ? `🍽️ Dine In · Table #${order.tableNumber}`
+                          : order.orderType === "Delivery"
+                            ? "🛵 Delivery"
+                            : order.orderType === "Dine In"
+                              ? "🍽️ Dine In"
+                              : "🥡 Take Away"}
+                      </span>
+                    )}
+                    {order.customerName && (
+                      <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                        👤 {order.customerName}
+                      </span>
+                    )}
+                    {order.customerPhone && (
+                      <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
+                        📞 {order.customerPhone}
+                      </span>
+                    )}
+                  </div>
                   {order.notes && (
                     <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 max-w-full">
-                      {order.notes}
+                      📝 {order.notes}
                     </p>
                   )}
                 </div>
@@ -129,6 +185,12 @@ export default function OrdersPage() {
                   Total: Rs. {order.total.toFixed(0)}
                 </span>
                 <div className="flex gap-2">
+                  <button
+                    onClick={() => openPrint(order, false)}
+                    className="text-sm px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors"
+                  >
+                    🖨️
+                  </button>
                   <button
                     onClick={() => handleEdit(order.id)}
                     className="text-sm px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors"

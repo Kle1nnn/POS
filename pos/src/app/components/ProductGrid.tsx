@@ -10,6 +10,16 @@ import RollCard from "./card/RollCard";
 import FriesCard from "./card/FriesCard";
 import DrinksCard from "./card/DrinksCard";
 
+const CATEGORY_ORDER = [
+  "Pizza",
+  "Burger",
+  "Broast",
+  "Rolls",
+  "Fries",
+  "Drinks",
+  "Extras",
+];
+
 interface ProductGridProps {
   searchQuery?: string;
 }
@@ -17,8 +27,7 @@ interface ProductGridProps {
 export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
   const { selectedCategory } = useCategory();
 
-  const filteredProducts = products
-    .filter((product) => {
+  const filteredProducts = products.filter((product) => {
     const matchesCategory =
       selectedCategory === "ALL" || product.category === selectedCategory;
     const query = searchQuery.trim().toLowerCase();
@@ -26,23 +35,29 @@ export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
       !query ||
       product.name.toLowerCase().includes(query) ||
       product.description.toLowerCase().includes(query);
-
     return matchesCategory && matchesSearch;
-    })
-    .toSorted((a, b) => a.name.localeCompare(b.name));
+  });
 
   const productsByCategory = filteredProducts.reduce(
     (acc, product) => {
-      if (!acc[product.category]) {
-        acc[product.category] = [];
-      }
+      if (!acc[product.category]) acc[product.category] = [];
       acc[product.category].push(product);
       return acc;
     },
     {} as { [key: string]: Product[] },
   );
 
-  const renderProductCard = (product: Product) => {
+  // Sort items within each category alphabetically
+  Object.values(productsByCategory).forEach((arr) =>
+    arr.sort((a, b) => a.name.localeCompare(b.name)),
+  );
+
+  // Sort categories in defined order
+  const sortedCategories = Object.keys(productsByCategory).sort(
+    (a, b) => CATEGORY_ORDER.indexOf(a) - CATEGORY_ORDER.indexOf(b),
+  );
+
+  const renderCard = (product: Product) => {
     switch (product.category) {
       case "Pizza":
         return <PizzaCard key={product.id} product={product} />;
@@ -59,31 +74,35 @@ export default function ProductGrid({ searchQuery = "" }: ProductGridProps) {
     }
   };
 
-  return (
-    <div className="py-6 px-6">
-      {Object.entries(productsByCategory).map(
-        ([category, categoryProducts]) => (
-          <div key={category} className="mb-8">
-            <div className="flex items-baseline justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-900">
-                {category} Menu
-              </h2>
-              <span className="text-xs text-gray-400">
-                {categoryProducts.length} items
-              </span>
-            </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-5">
-              {categoryProducts.map((product) => renderProductCard(product))}
-            </div>
-          </div>
-        ),
-      )}
+  if (filteredProducts.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-400 text-sm">
+        No products found
+      </div>
+    );
+  }
 
-      {filteredProducts.length === 0 && (
-        <div className="text-center py-12 text-gray-400 text-sm">
-          No products found
+  return (
+    <div className="py-4 px-4">
+      {sortedCategories.map((category) => (
+        <div key={category} className="mb-6">
+          {/* Category header */}
+          <div className="flex items-center gap-2 mb-3">
+            <h2 className="text-sm font-bold text-gray-800 uppercase tracking-wide">
+              {category}
+            </h2>
+            <div className="flex-1 h-px bg-[#f1e5d8]" />
+            <span className="text-xs text-gray-400">
+              {productsByCategory[category].length} items
+            </span>
+          </div>
+
+          {/* Cards grid — 2 cols on small, more on wider */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+            {productsByCategory[category].map((product) => renderCard(product))}
+          </div>
         </div>
-      )}
+      ))}
     </div>
   );
 }

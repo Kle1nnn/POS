@@ -13,6 +13,10 @@ export async function GET(req: NextRequest) {
           o.status,
           o.total,
           o.notes,
+          o.customer_name,
+          o.customer_phone,
+          o.order_type,
+          o.table_number,
           o.created_at,
           o.checked_out_at,
           COALESCE(
@@ -46,6 +50,10 @@ export async function GET(req: NextRequest) {
           status: row.status as "saved" | "checkedout",
           total: Number(row.total),
           notes: row.notes as string | null,
+          customerName: row.customer_name as string | null,
+          customerPhone: row.customer_phone as string | null,
+          orderType: row.order_type as string | null,
+          tableNumber: row.table_number as number | null,
           createdAt: row.created_at as string,
           checkedOutAt: row.checked_out_at as string | null,
           items: row.items,
@@ -65,4 +73,3 @@ export async function GET(req: NextRequest) {
     }
   }
 }
-

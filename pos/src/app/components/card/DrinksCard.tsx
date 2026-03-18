@@ -2,31 +2,24 @@
 import React, { useState } from "react";
 import { Product } from "../Product";
 import { useCart, makeCartKey } from "../../context/CartContext";
-import ToppingsSelector from "../ToppingsSelector";
 
 interface DrinksCardProps {
   product: Product;
 }
 
-const DRINK_SIZE_PRICES: Record<string, number> = {
-  Small: 0,
-  Regular: 50,
-  Large: 100,
-};
-
-const SIZE_OPTIONS = [
-  { value: "Small", label: "Small" },
-  { value: "Regular", label: "Regular" },
-  { value: "Large", label: "Large" },
+const DRINK_SIZES = [
+  { label: "Sm", value: "Small", extra: 0 },
+  { label: "Reg", value: "Regular", extra: 50 },
+  { label: "Lg", value: "Large", extra: 100 },
 ];
 
 export default function DrinksCard({ product }: DrinksCardProps) {
   const { addToCart } = useCart();
   const [selectedSize, setSelectedSize] = useState("Regular");
+  const extra = DRINK_SIZES.find((s) => s.value === selectedSize)?.extra ?? 0;
+  const finalPrice = product.basePrice + extra;
 
-  const finalPrice = product.basePrice + DRINK_SIZE_PRICES[selectedSize];
-
-  const handleAddToBilling = () => {
+  const handleAdd = () => {
     addToCart({
       ...product,
       cartKey: makeCartKey(product.id, selectedSize),
@@ -36,39 +29,50 @@ export default function DrinksCard({ product }: DrinksCardProps) {
   };
 
   return (
-    <div className="bg-[#fdfaf7] rounded-3xl p-4 shadow-sm hover:shadow-md transition-shadow flex flex-col border border-[#f1e5d8]">
+    <div className="bg-white rounded-2xl border border-[#f1e5d8] shadow-sm hover:shadow-md transition-all flex flex-col overflow-hidden">
       <div
-        className="w-full h-28 rounded-2xl bg-cover bg-center mb-3 bg-[#d3e3f6]"
-        style={{
-          backgroundImage: `url('/${product.image || "coffee-placeholder.png"}')`,
-        }}
+        className="w-full h-24 bg-cover bg-center bg-[#e8f0fa]"
+        style={{ backgroundImage: `url('/${product.image || "drink.png"}')` }}
       />
-
-      <div className="mb-3">
-        <h3 className="font-semibold text-sm text-gray-900 mb-0.5">
+      <div className="px-3 pt-2 pb-1">
+        <h3 className="font-semibold text-xs text-gray-900 leading-tight line-clamp-2 min-h-[2.2rem]">
           {product.name}
         </h3>
-        <p className="text-xs text-gray-500 mb-1">{product.description}</p>
-        <p className="text-lg font-bold text-gray-900 tracking-tight">
+        <p className="text-sm font-bold text-[#5b3722] mt-0.5">
           Rs. {finalPrice.toFixed(0)}
         </p>
       </div>
 
-      <div className="space-y-2.5 mb-3">
-        <ToppingsSelector
-          label="Size"
-          options={SIZE_OPTIONS}
-          selected={selectedSize}
-          onSelect={setSelectedSize}
-          activeColor="bg-blue-600"
-        />
+      <div className="px-3 pb-1">
+        <p className="text-[0.6rem] text-gray-400 font-medium mb-1 uppercase tracking-wide">
+          Size
+        </p>
+        <div className="flex gap-1">
+          {DRINK_SIZES.map((s) => {
+            const isActive = selectedSize === s.value;
+            return (
+              <button
+                key={s.value}
+                onClick={() => setSelectedSize(s.value)}
+                className={`flex-1 py-1 rounded-lg text-[0.65rem] font-semibold transition-all border
+                  ${
+                    isActive
+                      ? "bg-[#1565c0] text-white border-[#1565c0]"
+                      : "bg-[#e8f0fa] text-[#1565c0] border-[#bbdefb] hover:bg-[#dde9f8]"
+                  }`}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <button
-        onClick={handleAddToBilling}
-        className="mt-auto w-full bg-[#5b3722] text-white py-3 rounded-2xl font-semibold text-sm hover:bg-[#4a2d1b] transition-colors"
+        onClick={handleAdd}
+        className="mx-3 mb-3 mt-2 py-2 rounded-xl bg-[#5b3722] text-white text-xs font-semibold hover:bg-[#4a2d1b] transition-colors"
       >
-        Add to Billing
+        + Add
       </button>
     </div>
   );

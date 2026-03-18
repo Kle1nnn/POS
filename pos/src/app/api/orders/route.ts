@@ -18,6 +18,10 @@ type SaveOrderBody = {
   total: number;
   notes?: string;
   status?: "saved" | "checkedout";
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
 };
 
 type UpdateOrderBody = {
@@ -111,7 +115,7 @@ export async function POST(req: NextRequest) {
   let client;
   try {
     const body = (await req.json()) as SaveOrderBody;
-    const { orderCode: providedOrderCode, items, total, notes, status } = body;
+    const { orderCode: providedOrderCode, items, total, notes, status, customerName, customerPhone, orderType, tableNumber } = body;
 
     if (!items || items.length === 0) {
       return NextResponse.json(
@@ -138,11 +142,11 @@ export async function POST(req: NextRequest) {
 
     const orderInsert = await client.query(
       `
-        INSERT INTO orders (order_code, status, total, notes, created_at, checked_out_at)
-        VALUES ($1, $2, $3, $4, NOW(), CASE WHEN $2 = 'checkedout' THEN NOW() ELSE NULL END)
+        INSERT INTO orders (order_code, status, total, notes, customer_name, customer_phone, order_type, table_number, created_at, checked_out_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), CASE WHEN $2 = 'checkedout' THEN NOW() ELSE NULL END)
         RETURNING id;
       `,
-      [orderCode, orderStatus, total, notes ?? null],
+      [orderCode, orderStatus, total, notes ?? null, customerName ?? null, customerPhone ?? null, orderType ?? "Delivery", tableNumber ?? null],
     );
 
     const orderId: number = orderInsert.rows[0].id;
