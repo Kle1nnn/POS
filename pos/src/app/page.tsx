@@ -8,7 +8,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
 
   return (
-    <div className="min-h-screen font-sans">
+    <div className="min-h-screen font-sans bg-[#f0f2f5]">
       <Searchbar value={searchQuery} onChange={setSearchQuery} />
       <Navbar />
       <ProductGrid searchQuery={searchQuery} />
