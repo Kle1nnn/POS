@@ -330,7 +330,7 @@ export const products: Product[] = [
     description: "Chicken shawarma",
     basePrice: 200,
     image: "shawarma.png",
-    category: "Rolls",
+    category: "Shawarma",
   },
   {
     id: "33",
@@ -338,7 +338,7 @@ export const products: Product[] = [
     description: "Cheese shawarma",
     basePrice: 250,
     image: "shawarma.png",
-    category: "Rolls",
+    category: "Shawarma",
   },
   {
     id: "34",

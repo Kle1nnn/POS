@@ -1,8 +1,7 @@
 "use client";
 import { useState } from "react";
-import Navbar from "./components/Navbar";
-import ProductGrid from "./components/ProductGrid";
 import Searchbar from "./components/Searchbar";
+import MenuGrid from "./components/MenuGrid";
 
 export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
@@ -10,8 +9,7 @@ export default function Home() {
   return (
     <div className="min-h-screen font-sans bg-[#f0f2f5]">
       <Searchbar value={searchQuery} onChange={setSearchQuery} />
-      <Navbar />
-      <ProductGrid searchQuery={searchQuery} />
+      <MenuGrid searchQuery={searchQuery} />
     </div>
   );
 }
