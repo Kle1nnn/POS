@@ -153,7 +153,7 @@ export default function MenuGrid({
   );
 
   const tileGrid = (
-    <div className="flex flex-wrap gap-1.5 p-3 bg-[#1e3a5f]">
+    <div className="flex flex-wrap gap-2 p-3 bg-[#1e3a5f] justify-center">
       {pizzaProducts.map((pizza) => {
         const isSelected =
           selection.mode === "pizza" && selection.productId === pizza.id;
@@ -190,7 +190,7 @@ export default function MenuGrid({
   if (isSearching) {
     return (
       <div className="flex flex-col min-h-0">
-        <div className="flex flex-wrap gap-1.5 p-3 bg-[#1e3a5f]">
+        <div className="flex flex-wrap gap-2 p-3 bg-[#1e3a5f] justify-center">
           {searchResults.length === 0 ? (
             <div className="text-center py-16 text-white/60 w-full">
               No products found
@@ -268,11 +268,11 @@ function Tile({
     <button
       onClick={onClick}
       className={`flex flex-col items-center justify-start border-2 rounded-xl active:scale-95 transition-all overflow-hidden ${ring}`}
-      style={{ width: 80, minHeight: 80 }}
+      style={{ width: 90, minHeight: 90 }}
     >
       <div
         className="w-full flex items-center justify-center bg-[#c8daea]"
-        style={{ height: 52 }}
+        style={{ height: 58 }}
       >
         {image && !imgError ? (
           <img
@@ -280,14 +280,14 @@ function Tile({
             alt={label}
             onError={() => setImgError(true)}
             className="object-contain"
-            style={{ width: 44, height: 44 }}
+            style={{ width: 50, height: 50 }}
           />
         ) : (
           <span className="text-2xl">{fallbackEmoji ?? "🍽️"}</span>
         )}
       </div>
       <div className="w-full px-1 py-1 text-center">
-        <span className="text-[0.6rem] font-semibold text-[#1a3a5c] leading-tight line-clamp-2 block">
+        <span className="text-[0.72rem] font-bold text-[#1a3a5c] leading-tight line-clamp-2 block">
           {label}
         </span>
       </div>
@@ -316,7 +316,7 @@ function SizePicker({
           {pizza.name}
         </span>
       </div>
-      <div className="flex gap-3 p-4 bg-[#e8eef5]">
+      <div className="flex gap-3 p-4 bg-[#e8eef5] justify-center">
         {sizes.map((size) => {
           const price = pizza.sizePrices?.[size];
           return (
@@ -379,7 +379,7 @@ function SubItemPanel({
           {category}
         </span>
       </div>
-      <div className="flex flex-wrap gap-3 p-4 bg-[#e8eef5]">
+      <div className="flex flex-wrap gap-3 p-4 bg-[#e8eef5] justify-center">
         {items.map((item) => {
           const isAdded = added === item.id;
           return (

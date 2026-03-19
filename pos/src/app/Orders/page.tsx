@@ -20,6 +20,9 @@ export default function OrdersPage() {
     total: number;
     notes: string;
     isPaid: boolean;
+    customer?: { name: string; phone: string };
+    orderType?: string;
+    tableNumber?: number | null;
   } | null>(null);
 
   const openPrint = (order: (typeof savedOrders)[0], isPaid: boolean) => {
@@ -29,6 +32,11 @@ export default function OrdersPage() {
       total: order.total,
       notes: order.notes ?? "",
       isPaid,
+      customer: order.customerName
+        ? { name: order.customerName, phone: order.customerPhone ?? "" }
+        : undefined,
+      orderType: order.orderType,
+      tableNumber: order.tableNumber,
     });
     setPrintModalOpen(true);
   };
@@ -68,7 +76,7 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="p-6 max-w-3xl">
+    <div className="min-h-screen bg-[#f0f2f5]">
       {printOrder && (
         <PrintModal
           isOpen={printModalOpen}
@@ -78,143 +86,191 @@ export default function OrdersPage() {
           notes={printOrder.notes}
           orderId={printOrder.id}
           isPaid={printOrder.isPaid}
+          customer={printOrder.customer}
+          orderType={printOrder.orderType}
+          tableNumber={printOrder.tableNumber}
         />
       )}
-      <h1 className="text-2xl font-bold text-gray-900 mb-1">📋 Saved Orders</h1>
-      <p className="text-sm text-gray-400 mb-6">
-        Orders saved from billing. Checkout when ready.
-      </p>
 
-      {savedOrders.length === 0 ? (
-        <div className="text-center py-20 text-gray-400 flex flex-col items-center gap-3">
-          <span className="text-5xl">📭</span>
-          <p className="text-base">No saved orders yet.</p>
-          <p className="text-sm">Use "Save Order" in the billing panel.</p>
-        </div>
-      ) : (
-        <div className="space-y-4">
-          {savedOrders.map((order) => (
-            <div
-              key={order.id}
-              className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+      {/* ── Nav bar ── */}
+      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">📋 Saved Orders</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] active:scale-95 transition-all"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
             >
-              {/* Header */}
-              <div className="flex justify-between items-start mb-4 gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between gap-3 mb-1">
-                    <p className="font-bold text-gray-900 text-sm">
-                      {order.id}
-                    </p>
-                    <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2.5 py-1 rounded-full flex-shrink-0">
-                      Saved
-                    </span>
-                  </div>
-                  <p className="text-xs text-gray-400 mb-1">
-                    {order.createdAt}
-                  </p>
-                  <div className="flex flex-wrap gap-1 mb-1">
-                    {order.orderType && (
-                      <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
-                        {order.orderType === "Dine In" && order.tableNumber
-                          ? `🍽️ Dine In · Table #${order.tableNumber}`
-                          : order.orderType === "Delivery"
-                            ? "🛵 Delivery"
-                            : order.orderType === "Dine In"
-                              ? "🍽️ Dine In"
-                              : "🥡 Take Away"}
-                      </span>
-                    )}
-                    {order.customerName && (
-                      <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
-                        👤 {order.customerName}
-                      </span>
-                    )}
-                    {order.customerPhone && (
-                      <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
-                        📞 {order.customerPhone}
-                      </span>
-                    )}
-                  </div>
-                  {order.notes && (
-                    <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 max-w-full">
-                      📝 {order.notes}
-                    </p>
-                  )}
-                </div>
-              </div>
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            Menu
+          </button>
+          <button
+            onClick={() => router.push("/History")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a5c2a] text-white text-sm font-semibold hover:bg-green-700 active:scale-95 transition-all"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
+              />
+            </svg>
+            History
+          </button>
+        </div>
+      </div>
 
-              {/* Items */}
-              <div className="space-y-2 mb-4">
-                {order.items.map((item, i) => (
-                  <div
-                    key={i}
-                    className="flex justify-between items-center text-sm text-gray-700"
-                  >
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-gray-400 text-xs">
-                        ×{item.quantity}
+      <div className="p-6 max-w-3xl">
+        <p className="text-sm text-gray-400 mb-6">
+          Orders saved from billing. Checkout when ready.
+        </p>
+
+        {savedOrders.length === 0 ? (
+          <div className="text-center py-20 text-gray-400 flex flex-col items-center gap-3">
+            <span className="text-5xl">📭</span>
+            <p className="text-base">No saved orders yet.</p>
+            <p className="text-sm">Use "Save Order" in the billing panel.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {savedOrders.map((order) => (
+              <div
+                key={order.id}
+                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+              >
+                <div className="flex justify-between items-start mb-4 gap-4">
+                  <div className="flex-1">
+                    <div className="flex items-center justify-between gap-3 mb-1">
+                      <p className="font-bold text-gray-900 text-sm">
+                        {order.id}
+                      </p>
+                      <span className="text-xs bg-amber-100 text-amber-800 font-semibold px-2.5 py-1 rounded-full flex-shrink-0">
+                        Saved
                       </span>
-                      <span>{item.name}</span>
-                      {item.selectedSize && item.selectedSize !== "N/A" && (
-                        <span className="text-xs text-gray-400">
-                          ({item.selectedSize})
+                    </div>
+                    <p className="text-xs text-gray-400 mb-1">
+                      {order.createdAt}
+                    </p>
+                    <div className="flex flex-wrap gap-1 mb-1">
+                      {order.orderType && (
+                        <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
+                          {order.orderType === "Dine In" && order.tableNumber
+                            ? `🍽️ Dine In · Table #${order.tableNumber}`
+                            : order.orderType === "Delivery"
+                              ? "🛵 Delivery"
+                              : order.orderType === "Dine In"
+                                ? "🍽️ Dine In"
+                                : "🥡 Take Away"}
                         </span>
                       )}
-                      {item.selectedTopping &&
-                        item.selectedTopping !== "None" && (
-                          <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">
-                            {item.selectedTopping}
-                          </span>
-                        )}
-                      {item.selectedSauce && item.selectedSauce !== "None" && (
-                        <span className="text-xs bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded-full">
-                          {item.selectedSauce}
+                      {order.customerName && (
+                        <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                          👤 {order.customerName}
+                        </span>
+                      )}
+                      {order.customerPhone && (
+                        <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
+                          📞 {order.customerPhone}
                         </span>
                       )}
                     </div>
-                    <span className="font-medium">
-                      Rs. {(item.price * item.quantity).toFixed(0)}
-                    </span>
+                    {order.notes && (
+                      <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1">
+                        📝 {order.notes}
+                      </p>
+                    )}
                   </div>
-                ))}
-              </div>
+                </div>
 
-              {/* Footer */}
-              <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
-                <span className="font-bold text-gray-900">
-                  Total: Rs. {order.total.toFixed(0)}
-                </span>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => openPrint(order, false)}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors"
-                  >
-                    🖨️
-                  </button>
-                  <button
-                    onClick={() => handleEdit(order.id)}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors"
-                  >
-                    ✏️ Edit
-                  </button>
-                  <button
-                    onClick={() => handleDelete(order.id)}
-                    className="text-sm px-3 py-1.5 rounded-lg bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors"
-                  >
-                    Delete
-                  </button>
-                  <button
-                    onClick={() => handleCheckout(order.id)}
-                    className="text-sm px-4 py-1.5 rounded-lg bg-amber-900 hover:bg-amber-800 text-white font-semibold transition-colors"
-                  >
-                    Checkout
-                  </button>
+                <div className="space-y-2 mb-4">
+                  {order.items.map((item, i) => (
+                    <div
+                      key={i}
+                      className="flex justify-between items-center text-sm text-gray-700"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-gray-400 text-xs">
+                          ×{item.quantity}
+                        </span>
+                        <span>{item.name}</span>
+                        {item.selectedSize && item.selectedSize !== "N/A" && (
+                          <span className="text-xs text-gray-400">
+                            ({item.selectedSize})
+                          </span>
+                        )}
+                        {item.selectedTopping &&
+                          item.selectedTopping !== "None" && (
+                            <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">
+                              {item.selectedTopping}
+                            </span>
+                          )}
+                        {item.selectedSauce &&
+                          item.selectedSauce !== "None" && (
+                            <span className="text-xs bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded-full">
+                              {item.selectedSauce}
+                            </span>
+                          )}
+                      </div>
+                      <span className="font-medium">
+                        Rs. {(item.price * item.quantity).toFixed(0)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
+                  <span className="font-bold text-gray-900">
+                    Total: Rs. {order.total.toFixed(0)}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openPrint(order, false)}
+                      className="text-sm px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors active:scale-95"
+                    >
+                      🖨️
+                    </button>
+                    <button
+                      onClick={() => handleEdit(order.id)}
+                      className="text-sm px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors active:scale-95"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(order.id)}
+                      className="text-sm px-3 py-2 rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors active:scale-95"
+                    >
+                      Delete
+                    </button>
+                    <button
+                      onClick={() => handleCheckout(order.id)}
+                      className="text-sm px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white font-semibold transition-colors active:scale-95"
+                    >
+                      Checkout
+                    </button>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      )}
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
                 'selectedSauce', oi.selected_sauce,
                 'price', oi.unit_price,
                 'quantity', oi.quantity,
-                'cartKey', oi.product_name || '-' || oi.selected_size || '-' || oi.selected_topping || '-' || oi.selected_sauce
+                'cartKey', oi.product_name || '-' || COALESCE(oi.selected_size,'') || '-' || COALESCE(oi.selected_topping,'') || '-' || COALESCE(oi.selected_sauce,'')
               )
             ) FILTER (WHERE oi.id IS NOT NULL),
             '[]'::json

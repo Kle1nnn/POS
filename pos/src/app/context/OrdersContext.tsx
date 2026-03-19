@@ -52,6 +52,30 @@ type OrdersContextType = {
 
 const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
 
+// Sequential order counter — seeded from DB on first hydration to avoid collisions after refresh
+let _tbtCounter = 0;
+let _tbtSeeded = false;
+
+function seedCounter(orders: { id: string }[]) {
+  if (_tbtSeeded) return;
+  _tbtSeeded = true;
+  // Find highest existing TBT-N number so next ID continues from there
+  let max = 0;
+  for (const o of orders) {
+    const match = o.id.match(/^TBT-(\d+)$/);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > max) max = n;
+    }
+  }
+  if (max > _tbtCounter) _tbtCounter = max;
+}
+
+function nextTBTId(): string {
+  _tbtCounter += 1;
+  return `TBT-${_tbtCounter}`;
+}
+
 export function OrdersProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
@@ -77,23 +101,21 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             items: CartItem[];
           }[];
         };
-        setOrders((prev) =>
-          prev.length > 0
-            ? prev
-            : data.orders.map((o) => ({
-                id: o.orderCode,
-                items: o.items,
-                total: o.total,
-                notes: o.notes,
-                customerName: o.customerName,
-                customerPhone: o.customerPhone,
-                orderType: o.orderType,
-                tableNumber: o.tableNumber,
-                createdAt: o.createdAt,
-                status: o.status,
-                checkedOutAt: o.checkedOutAt,
-              })),
-        );
+        const mapped = data.orders.map((o) => ({
+          id: o.orderCode,
+          items: o.items,
+          total: o.total,
+          notes: o.notes,
+          customerName: o.customerName,
+          customerPhone: o.customerPhone,
+          orderType: o.orderType,
+          tableNumber: o.tableNumber,
+          createdAt: o.createdAt,
+          status: o.status,
+          checkedOutAt: o.checkedOutAt,
+        }));
+        seedCounter(mapped);
+        setOrders((prev) => (prev.length > 0 ? prev : mapped));
       } catch (e) {
         console.error("Failed to load orders from database", e);
       }
@@ -111,7 +133,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     orderType?: string,
     tableNumber?: number | null,
   ): string => {
-    const id = `ORD-${Date.now()}`;
+    const id = nextTBTId();
     const newOrder: Order = {
       id,
       items,

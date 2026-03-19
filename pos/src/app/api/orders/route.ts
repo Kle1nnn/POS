@@ -135,15 +135,24 @@ export async function POST(req: NextRequest) {
       status === "checkedout" ? "checkedout" : "saved";
     const orderCode = providedOrderCode && providedOrderCode.trim().length > 0
       ? providedOrderCode
-      : `ORD-${Date.now()}`;
+      : `TBT-${Date.now()}`; // fallback, should not normally occur
 
     client = await pgPool.connect();
     await client.query("BEGIN");
 
     const orderInsert = await client.query(
       `
-        INSERT INTO orders (order_code, status, total, notes, customer_name, customer_phone, order_type, table_number, created_at, checked_out_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), CASE WHEN $2 = 'checkedout' THEN NOW() ELSE NULL END)
+        INSERT INTO orders (
+          order_code, status, total, notes,
+          customer_name, customer_phone, order_type, table_number,
+          business_date, created_at, checked_out_at
+        )
+        VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8,
+          (SELECT current_business_date FROM store_state WHERE id = 1),
+          NOW(),
+          CASE WHEN $2 = 'checkedout' THEN NOW() ELSE NULL END
+        )
         RETURNING id;
       `,
       [orderCode, orderStatus, total, notes ?? null, customerName ?? null, customerPhone ?? null, orderType ?? "Delivery", tableNumber ?? null],
