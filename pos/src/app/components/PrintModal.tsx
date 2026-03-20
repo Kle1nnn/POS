@@ -101,6 +101,7 @@ function buildReceiptHTML(
 <body>
 
   <div class="center">
+  <img src="logo.png" alt="logo" style="width:100px; height:100px; object-fit:contain; margin-bottom:2px;"/>
     <div class="store-name">Tasty Bites</div>
     <div class="store-sub">Kamran Centre, Tharushah</div>
     <div class="store-sub">03213611550 | 03063096900</div>
