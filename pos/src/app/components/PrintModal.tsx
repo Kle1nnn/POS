@@ -50,109 +50,144 @@ function buildReceiptHTML(
       <tr>
         <td>${idx + 1}</td>
         <td>
-          <b>${item.name}${sizePart}</b>
-          ${extras ? `<br/><span style="font-size:9px;">${extras}</span>` : ""}
+          <span class="item-name">${item.name}${sizePart}</span>
+          ${extras ? `<div class="item-extras">${extras}</div>` : ""}
         </td>
-        <td style="text-align:center;">${item.quantity} P</td>
-        <td style="text-align:right;">${item.price.toFixed(0)}</td>
-        <td style="text-align:right;">${(item.price * item.quantity).toFixed(0)}</td>
+        <td class="num">${item.quantity}</td>
+        <td class="num">${item.price.toFixed(0)}</td>
+        <td class="num">${(item.price * item.quantity).toFixed(0)}</td>
       </tr>`;
     })
     .join("");
+
+  const dineIn = orderType === "Dine In";
+  const tableRow = dineIn
+    ? `<tr><td colspan="2"><span class="meta-label">Table</span> ${tableNumber != null ? `#${tableNumber}` : "—"}</td></tr>`
+    : "";
 
   return `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="UTF-8"/>
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; font-weight:bold; }
+  * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    font-family: 'Courier New', Courier, monospace;
+    font-family: 'Segoe UI', system-ui, sans-serif;
     width: 80mm;
+    max-width: 80mm;
     margin: 0 auto;
-    padding: 4mm 4mm;
-    font-size: 11px;
-    color: #000;
+    padding: 6mm 5mm 8mm;
+    font-size: 15px;
+    line-height: 1.35;
+    color: #111;
+    font-weight: 600;
   }
   @media print {
-    body { width: 80mm; margin: 0; padding: 3mm; }
+    body { width: 80mm; margin: 0; padding: 5mm 4mm; }
     @page { margin: 0; size: 80mm auto; }
   }
   .center { text-align: center; }
-  .dotted { border-top: 1px dotted #000; margin: 5px 0; }
-  .store-name { font-size: 16px; font-weight: 900; letter-spacing: 0.5px; margin: 3px 0 1px; }
-  .store-sub  { font-size: 11px; margin: 1px 0; }
-  .order-id   { font-size: 14px; font-weight: 900; letter-spacing: 1px; }
+  .section { margin-top: 18px; }
+  .section:first-of-type { margin-top: 0; }
+  .store-name { font-size: 22px; font-weight: 800; letter-spacing: 0.02em; margin: 6px 0 4px; }
+  .store-sub  { font-size: 13px; font-weight: 600; color: #333; margin: 2px 0; }
+  .order-id   { font-size: 17px; font-weight: 800; letter-spacing: 0.04em; }
   .paid-stamp {
-    text-align: center; margin: 8px 0 4px; padding: 6px 0;
-    border: 3px solid #000; border-radius: 4px;
-    font-size: 28px; font-weight: 900; letter-spacing: 6px;
+    text-align: center; margin: 14px 0 8px; padding: 10px 8px;
+    border: 3px solid #000; border-radius: 6px;
+    font-size: 32px; font-weight: 800; letter-spacing: 0.15em;
   }
-  table { width: 100%; border-collapse: collapse; }
-  td, th { font-size: 11px; padding: 2px 2px; vertical-align: top; font-weight: bold; }
-  .items-head th { border-bottom: 2px solid #000; border-top: 2px solid #000; font-size: 10px; }
-  .grand-total td { font-size: 14px; font-weight: 900; padding: 3px 2px; border-top: 2px solid #000; border-bottom: 2px solid #000; }
-  .payment-box { border: 2px solid #000; padding: 5px 6px; margin-top: 6px; }
-  .payment-title { text-align: center; margin-bottom: 3px; font-size: 13px; text-decoration: underline; }
-  .payment-grid { display: flex; justify-content: space-between; }
-  .meta-label { display: inline-block; width: 72px; }
+  table.meta { width: 100%; border-collapse: collapse; font-size: 14px; }
+  table.meta td { padding: 5px 0; vertical-align: top; }
+  .meta-label { display: inline-block; min-width: 76px; font-weight: 700; color: #222; }
+  table.items { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 8px; }
+  table.items th {
+    text-align: left;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: #333;
+    padding: 8px 4px 6px 0;
+    border-bottom: 2px solid #111;
+  }
+  table.items th.num, table.items td.num { text-align: right; }
+  table.items th:nth-child(3), table.items th:nth-child(4), table.items th:nth-child(5) { text-align: right; }
+  table.items td { padding: 8px 4px 8px 0; vertical-align: top; border-bottom: 1px solid #e8e8e8; }
+  table.items td.num { font-variant-numeric: tabular-nums; }
+  .item-name { font-size: 15px; font-weight: 700; display: block; }
+  .item-extras { font-size: 12px; font-weight: 600; color: #555; margin-top: 3px; }
+  .notes-block { font-size: 14px; margin-top: 14px; padding: 10px 0 0; border-top: 1px solid #ddd; }
+  .grand-total {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 3px solid #111;
+    font-size: 20px;
+    font-weight: 800;
+  }
+  .payment-box {
+    margin-top: 18px;
+    padding: 12px 10px;
+    background: #f6f6f6;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1.45;
+  }
+  .payment-title { text-align: center; margin-bottom: 8px; font-size: 14px; font-weight: 800; }
+  .payment-grid { display: flex; justify-content: space-between; gap: 8px; }
 </style>
 </head>
 <body>
 
-  <div class="center">
-  <img src="logo.png" alt="logo" style="width:100px; height:100px; object-fit:contain; margin-bottom:2px;"/>
+  <div class="center section">
+    <img src="/logo.png" alt="" style="width:112px; height:112px; object-fit:contain; margin-bottom:4px;"/>
     <div class="store-name">Tasty Bites</div>
     <div class="store-sub">Kamran Centre, Tharushah</div>
-    <div class="store-sub">03213611550 | 03063096900</div>
+    <div class="store-sub">03213611550 · 03063096900</div>
   </div>
 
-  <div class="dotted"></div>
-
-  <table>
+  <table class="meta section">
     <tr>
-      <td><span class="meta-label">Date:</span> ${dateStr} ${timeStr}</td>
+      <td><span class="meta-label">Date</span> ${dateStr} · ${timeStr}</td>
       <td style="text-align:right;" class="order-id">${orderId}</td>
     </tr>
-    <tr><td><span class="meta-label">Type:</span> ${orderType ?? "Delivery"}</td></tr>
-    <tr><td><span class="meta-label">Table:</span> ${orderType === "Dine In" && tableNumber ? `#${tableNumber}` : "—"}</td></tr>
-    <tr><td><span class="meta-label">Customer:</span> ${customer?.name || "—"}</td></tr>
-    <tr><td><span class="meta-label">Mobile:</span> ${customer?.phone || "N/A"}</td></tr>
+    <tr><td colspan="2"><span class="meta-label">Type</span> ${orderType ?? "Delivery"}</td></tr>
+    ${tableRow}
+    <tr><td colspan="2"><span class="meta-label">Customer</span> ${customer?.name || "—"}</td></tr>
+    <tr><td colspan="2"><span class="meta-label">Mobile</span> ${customer?.phone || "—"}</td></tr>
   </table>
 
-  ${notes ? `<div class="dotted"></div><div><span class="meta-label">Notes:</span> ${notes}</div>` : ""}
+  ${notes ? `<div class="notes-block"><span class="meta-label">Notes</span> ${notes}</div>` : ""}
 
-  <div class="dotted"></div>
-
-  <table>
-    <thead class="items-head">
+  <table class="items section">
+    <thead>
       <tr>
-        <th style="text-align:left;width:16px;">#</th>
-        <th style="text-align:left;">Product</th>
-        <th style="text-align:center;">Qty</th>
-        <th style="text-align:right;">Price</th>
-        <th style="text-align:right;">Sub</th>
+        <th style="width:22px;">#</th>
+        <th>Item</th>
+        <th class="num" style="width:28px;">Qty</th>
+        <th class="num" style="width:40px;">Rs</th>
+        <th class="num" style="width:44px;">Sub</th>
       </tr>
     </thead>
     <tbody>${itemRows}</tbody>
   </table>
 
-  <div class="dotted"></div>
-
-  <table>
-    <tr class="grand-total">
-      <td>TOTAL:</td>
-      <td style="text-align:right;">Rs ${totalPrice.toFixed(0)}</td>
-    </tr>
-  </table>
+  <div class="grand-total">
+    <span>TOTAL</span>
+    <span>Rs ${totalPrice.toFixed(0)}</span>
+  </div>
 
   ${isPaid ? `<div class="paid-stamp">✓ PAID</div>` : ""}
 
   <div class="payment-box">
-    <div class="payment-title">Online Payment</div>
+    <div class="payment-title">Online payment</div>
     <div class="payment-grid">
-      <div>M. Saleh<br/>03013149288</div>
-      <div style="text-align:right;">Atique Hyder<br/>JazzCash 03009801494</div>
+      <div>M. Saleh — 03013149288</div>
+      <div style="text-align:right;">Atique Hyder — JazzCash 03009801494</div>
     </div>
   </div>
 

@@ -7,7 +7,7 @@ declare global {
 
 const connectionString =
   process.env.DATABASE_URL ||
-  "postgres://postgres:1234@localhost:5432/pos_db";
+  "postgres://postgres:123@localhost:5432/postgres";
 
 export const pgPool =
   global.pgPool ||
