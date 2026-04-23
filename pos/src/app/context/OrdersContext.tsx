@@ -7,23 +7,22 @@ import {
   useEffect,
   ReactNode,
 } from "react";
-import { CartItem } from "./CartContext"; // both files live in src/context/
+import { CartItem } from "./CartContext";
 
 export type OrderStatus = "saved" | "checkedout";
 
 export interface Order {
-  // customer + order type fields
   customerName?: string;
   customerPhone?: string;
   orderType?: string;
   tableNumber?: number | null;
   id: string;
-  items: CartItem[]; // full snapshot of cart at save time, includes cartKey
+  items: CartItem[];
   total: number;
   notes?: string;
   createdAt: string;
   status: OrderStatus;
-  checkedOutAt?: string; // only set when status flips to "checkedout"
+  checkedOutAt?: string;
 }
 
 type OrdersContextType = {
@@ -52,14 +51,10 @@ type OrdersContextType = {
 
 const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
 
-// Sequential order counter — seeded from DB on first hydration to avoid collisions after refresh
 let _tbtCounter = 0;
 let _tbtSeeded = false;
 
 function seedCounter(orders: { id: string }[]) {
-  if (_tbtSeeded) return;
-  _tbtSeeded = true;
-  // Find highest existing TBT-N number so next ID continues from there
   let max = 0;
   for (const o of orders) {
     const match = o.id.match(/^TBT-(\d+)$/);
@@ -71,6 +66,18 @@ function seedCounter(orders: { id: string }[]) {
   if (max > _tbtCounter) _tbtCounter = max;
 }
 
+async function seedCounterFromDb() {
+  if (_tbtSeeded) return;
+  _tbtSeeded = true;
+  try {
+    const res = await fetch("/api/orders/lastid");
+    if (res.ok) {
+      const data = await res.json();
+      if (data.lastNum > _tbtCounter) _tbtCounter = data.lastNum;
+    }
+  } catch { /* ignore */ }
+}
+
 function nextTBTId(): string {
   _tbtCounter += 1;
   return `TBT-${_tbtCounter}`;
@@ -80,9 +87,9 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
-  // Hydrate from database on first mount
   useEffect(() => {
     const loadFromDb = async () => {
+      await seedCounterFromDb(); // always seed from DB first on every load
       try {
         const res = await fetch("/api/orders/list");
         if (!res.ok) return;
@@ -114,7 +121,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
           status: o.status,
           checkedOutAt: o.checkedOutAt,
         }));
-        seedCounter(mapped);
+        seedCounter(mapped); // also seed from loaded orders as backup
         setOrders((prev) => (prev.length > 0 ? prev : mapped));
       } catch (e) {
         console.error("Failed to load orders from database", e);
@@ -123,7 +130,6 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     loadFromDb();
   }, []);
 
-  // Saves order, returns the new order id so caller can immediately checkout if needed
   const saveOrder = (
     items: CartItem[],
     total: number,
@@ -150,16 +156,11 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     return id;
   };
 
-  // Flips status to checkedout — moves it from savedOrders to history automatically
   const checkoutOrder = (orderId: string) => {
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
-          ? {
-              ...o,
-              status: "checkedout",
-              checkedOutAt: new Date().toLocaleString(),
-            }
+          ? { ...o, status: "checkedout", checkedOutAt: new Date().toLocaleString() }
           : o,
       ),
     );
@@ -180,7 +181,6 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     setOrders((prev) => prev.filter((o) => o.id !== orderId));
   };
 
-  // Derived views — no separate state, just filtered from same array
   const savedOrders = orders.filter((o) => o.status === "saved");
   const history = orders.filter((o) => o.status === "checkedout");
 
