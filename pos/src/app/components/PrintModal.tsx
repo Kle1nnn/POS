@@ -176,7 +176,7 @@ function buildReceiptHTML(
     padding-top: 12px;
     border-top: 1px solid #000;
     font-size: 16px;
-    font-weight: 900;
+    font-weight: 600;
     color: #000;
   }
   .payment-box {
