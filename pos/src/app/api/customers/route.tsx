@@ -22,18 +22,26 @@ const tableReady: Promise<void> = (async () => {
 // GET /api/customers?q=ali  — search by name prefix
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
+  const all = req.nextUrl.searchParams.get("all") === "1";
   let client;
   try {
     await tableReady;
     client = await pgPool.connect();
-    const result = await client.query(
-      `SELECT id, name, phone
-       FROM customers
-       WHERE LOWER(name) LIKE LOWER($1)
-       ORDER BY name ASC
-       LIMIT 8`,
-      [`${q}%`],
-    );
+    const result = all
+      ? await client.query(
+          `SELECT id, name, phone
+           FROM customers
+           ORDER BY created_at DESC, id DESC
+           LIMIT 500`,
+        )
+      : await client.query(
+          `SELECT id, name, phone
+           FROM customers
+           WHERE LOWER(name) LIKE LOWER($1)
+           ORDER BY name ASC
+           LIMIT 8`,
+          [`${q}%`],
+        );
     return NextResponse.json({ customers: result.rows }, { status: 200 });
   } catch (err) {
     console.error("Failed to search customers", err);
@@ -78,6 +86,50 @@ export async function POST(req: NextRequest) {
     console.error("Failed to save customer", err);
     return NextResponse.json(
       { error: "Failed to save customer" },
+      { status: 500 },
+    );
+  } finally {
+    if (client) client.release();
+  }
+}
+
+// PATCH /api/customers — { id, name, phone } → update existing customer
+export async function PATCH(req: NextRequest) {
+  let client;
+  try {
+    const payload = (await req.json()) as {
+      id?: number;
+      name?: string;
+      phone?: string;
+    };
+
+    if (!payload.id || !payload.name?.trim()) {
+      return NextResponse.json(
+        { error: "id and name are required" },
+        { status: 400 },
+      );
+    }
+
+    await tableReady;
+    client = await pgPool.connect();
+
+    const result = await client.query(
+      `UPDATE customers
+       SET name = $2, phone = $3
+       WHERE id = $1
+       RETURNING id, name, phone`,
+      [payload.id, payload.name.trim(), payload.phone?.trim() ?? ""],
+    );
+
+    if (!result.rowCount) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ customer: result.rows[0] }, { status: 200 });
+  } catch (err) {
+    console.error("Failed to update customer", err);
+    return NextResponse.json(
+      { error: "Failed to update customer" },
       { status: 500 },
     );
   } finally {

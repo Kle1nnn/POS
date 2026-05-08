@@ -16,7 +16,7 @@ const ORDER_TYPE_OPTIONS: { label: OrderType; emoji: string }[] = [
 ];
 
 export default function Billing() {
-  const { cartItems, removeFromCart, clearCart, updateQuantity, totalPrice } =
+  const { cartItems, removeFromCart, clearCart, updateQuantity, updatePrice, totalPrice } =
     useCart();
   const {
     saveOrder, checkoutOrder, updateOrder,
@@ -26,6 +26,7 @@ export default function Billing() {
 
   const [toast, setToast] = useState<string | null>(null);
   const [notes, setNotes] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [updating, setUpdating] = useState(false);
   const [orderType, setOrderType] = useState<OrderType>("Delivery");
   const [tableNumber, setTableNumber] = useState<number | null>(null);
@@ -50,17 +51,38 @@ export default function Billing() {
   const [pendingItems, setPendingItems] = useState<CartItem[]>([]);
   const [pendingTotal, setPendingTotal] = useState(0);
   const [pendingNotes, setPendingNotes] = useState("");
+  const [pendingInstructions, setPendingInstructions] = useState("");
   const [pendingIsPaid, setPendingIsPaid] = useState(false);
   const [pendingCustomer, setPendingCustomer] = useState<Customer>({ name: "", phone: "" });
   const [pendingOrderType, setPendingOrderType] = useState<OrderType>("Delivery");
   const [pendingTableNumber, setPendingTableNumber] = useState<number | null>(null);
+  const [now, setNow] = useState(() => new Date());
+  const minuteIntervalRef = useRef<number | null>(null);
 
   const isEditMode = !!editingOrderId;
 
   useEffect(() => {
     if (editingOrderId) {
       const order = savedOrders.find((o) => o.id === editingOrderId);
-      if (order?.notes !== undefined) setNotes(order.notes ?? "");
+      if (!order) return;
+      if (order.notes !== undefined) setNotes(order.notes ?? "");
+      if (order.instructions !== undefined) setInstructions(order.instructions ?? "");
+
+      const resolvedName = order.customerName?.trim() || "Walk-In Customer";
+      const isWalkInCustomer = resolvedName === "Walk-In Customer";
+      setCustomerName(resolvedName);
+      setCustomerPhone(order.customerPhone ?? "");
+      setIsWalkIn(isWalkInCustomer);
+
+      const validOrderType = (
+        order.orderType === "Delivery" ||
+        order.orderType === "Dine In" ||
+        order.orderType === "Take Away"
+      )
+        ? order.orderType
+        : "Delivery";
+      setOrderType(validOrderType);
+      setTableNumber(validOrderType === "Dine In" ? (order.tableNumber ?? null) : null);
     }
   }, [editingOrderId]);
 
@@ -85,6 +107,24 @@ export default function Billing() {
     if (itemBottom > container.scrollTop + containerHeight) container.scrollTop = itemBottom - containerHeight;
     else if (itemTop < container.scrollTop) container.scrollTop = itemTop;
   }, [activeIndex]);
+
+  useEffect(() => {
+    const msUntilNextMinute =
+      (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
+    const firstTick = window.setTimeout(() => {
+      setNow(new Date());
+      minuteIntervalRef.current = window.setInterval(() => {
+        setNow(new Date());
+      }, 60_000);
+    }, msUntilNextMinute);
+
+    return () => {
+      window.clearTimeout(firstTick);
+      if (minuteIntervalRef.current !== null) {
+        window.clearInterval(minuteIntervalRef.current);
+      }
+    };
+  }, []);
 
   const fetchSuggestions = useCallback(async (q: string) => {
     if (!q.trim()) { setSuggestions([]); return; }
@@ -121,16 +161,16 @@ export default function Billing() {
     } catch { } finally { setIsSavingCustomer(false); }
   };
 
-  const openPrintModal = (orderId: string, items: CartItem[], total: number, notes: string, isPaid: boolean, customer: Customer, type: OrderType, tableNum: number | null) => {
+  const openPrintModal = (orderId: string, items: CartItem[], total: number, notes: string, instructionsValue: string, isPaid: boolean, customer: Customer, type: OrderType, tableNum: number | null) => {
     setPendingOrderId(orderId); setPendingItems([...items]); setPendingTotal(total);
-    setPendingNotes(notes); setPendingIsPaid(isPaid); setPendingCustomer(customer);
+    setPendingNotes(notes); setPendingInstructions(instructionsValue); setPendingIsPaid(isPaid); setPendingCustomer(customer);
     setPendingOrderType(type); setPendingTableNumber(tableNum); setPrintModalOpen(true);
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
   const resetForm = () => {
-    clearCart(); setNotes(""); setCustomerName("Walk-In Customer"); setCustomerPhone("");
+    clearCart(); setNotes(""); setInstructions(""); setCustomerName("Walk-In Customer"); setCustomerPhone("");
     setIsWalkIn(true); setCustomerSaved(false); setOrderType("Delivery");
     setTableNumber(null); setOrderTypeOpen(false); setCustomerDropdownOpen(false);
   };
@@ -145,13 +185,13 @@ export default function Billing() {
     if (cartItems.length === 0 || !editingOrderId) return;
     setUpdating(true);
     try {
-      const res = await fetch("/api/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: editingOrderId, items: buildItems(), total: totalPrice, notes }) });
+      const res = await fetch("/api/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: editingOrderId, items: buildItems(), total: totalPrice, notes, instructions }) });
       if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error((errData as { error?: string }).error || `HTTP ${res.status}`); }
-      updateOrder(editingOrderId, [...cartItems], totalPrice, notes);
-      const snap = { id: editingOrderId, items: [...cartItems], total: totalPrice, notes };
+      updateOrder(editingOrderId, [...cartItems], totalPrice, notes, instructions);
+      const snap = { id: editingOrderId, items: [...cartItems], total: totalPrice, notes, instructions };
       const cust = { name: customerName, phone: customerPhone };
       setEditingOrderId(null); resetForm(); showToast("Order updated!");
-      openPrintModal(snap.id, snap.items, snap.total, snap.notes, false, cust, orderType, tableNumber);
+      openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber);
       router.push("/Orders");
     } catch (error) { showToast(`Update failed: ${error instanceof Error ? error.message : "unknown error"}`); }
     finally { setUpdating(false); }
@@ -162,42 +202,43 @@ export default function Billing() {
   const handleSaveOrder = async () => {
     if (cartItems.length === 0) return;
     const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
-    const orderId = saveOrder([...cartItems], totalPrice, notes, finalCustomerName, customerPhone, orderType, tableNumber);
+    const createdAtClient = new Date().toISOString();
+    const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
     try {
-      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, customerName: finalCustomerName, customerPhone, orderType, tableNumber }) });
+      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, instructions, customerName: finalCustomerName, customerPhone, orderType, tableNumber, createdAtClient }) });
     } catch (error) { console.error("Failed to persist saved order", error); }
-    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes };
+    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
     const cust = { name: finalCustomerName, phone: customerPhone };
     resetForm(); showToast("Order saved!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, false, cust, orderType, tableNumber);
+    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber);
   };
 
   const handleCheckout = async () => {
     if (cartItems.length === 0) return;
     const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
-    const orderId = saveOrder([...cartItems], totalPrice, notes, finalCustomerName, customerPhone, orderType, tableNumber);
+    const createdAtClient = new Date().toISOString();
+    const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
     // Save order to DB first (as "saved"), then immediately checkout — separate catches
     // so a failure in one doesn't silently skip the other
     try {
-      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, customerName: finalCustomerName, customerPhone, orderType, tableNumber }) });
+      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, instructions, customerName: finalCustomerName, customerPhone, orderType, tableNumber, createdAtClient }) });
     } catch (error) { console.error("Failed to persist order", error); }
     try {
       await fetch("/api/orders/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId }) });
     } catch (error) { console.error("Failed to checkout order", error); }
     checkoutOrder(orderId);
-    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes };
+    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
     const cust = { name: finalCustomerName, phone: customerPhone };
     resetForm(); showToast("Order checked out!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, true, cust, orderType, tableNumber);
+    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, true, cust, orderType, tableNumber);
   };
 
-  const now = new Date();
   const currentDate = `${String(now.getDate()).padStart(2,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${now.getFullYear()}`;
   const currentTime = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
 
   return (
     <aside className="w-[340px] flex-shrink-0 h-screen bg-white flex flex-col border-r border-gray-200 shadow-sm">
-      <PrintModal isOpen={printModalOpen} onClose={() => setPrintModalOpen(false)} cartItems={pendingItems} totalPrice={pendingTotal} notes={pendingNotes} orderId={pendingOrderId} isPaid={pendingIsPaid} customer={pendingCustomer} orderType={pendingOrderType} tableNumber={pendingTableNumber} />
+      <PrintModal isOpen={printModalOpen} onClose={() => setPrintModalOpen(false)} cartItems={pendingItems} totalPrice={pendingTotal} notes={pendingNotes} instructions={pendingInstructions} orderId={pendingOrderId} isPaid={pendingIsPaid} customer={pendingCustomer} orderType={pendingOrderType} tableNumber={pendingTableNumber} />
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">{toast}</div>
@@ -378,7 +419,19 @@ export default function Billing() {
                         )}
                       </div>
                     )}
-                    <p className="text-xs text-gray-400 mt-0.5">Rs. {item.price.toFixed(0)} each</p>
+                    <div className="mt-0.5 flex items-center gap-2">
+                      <span className="text-xs text-gray-400">Price</span>
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={item.price}
+                        onChange={(e) =>
+                          updatePrice(item.cartKey, Number(e.target.value))
+                        }
+                        className="w-20 text-xs border border-gray-200 rounded-md px-2 py-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-gray-700"
+                      />
+                    </div>
                   </div>
 
                   {/* Qty controls — big touch targets */}
@@ -420,6 +473,8 @@ export default function Billing() {
       {/* ── BOTTOM PANEL ── */}
       <div className="border-t border-gray-200 bg-white px-3 py-3 space-y-2">
         <textarea value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="📝 Order notes (optional)..." rows={1}
+          className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-gray-600 placeholder:text-gray-400" />
+        <textarea value={instructions} onChange={(e) => setInstructions(e.target.value)} placeholder="📌 Instructions (optional)..." rows={1}
           className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 text-gray-600 placeholder:text-gray-400" />
 
         <div className="flex justify-between items-center py-1 border-t border-gray-100">

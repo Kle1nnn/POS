@@ -19,11 +19,19 @@ export default function OrdersPage() {
     items: CartItem[];
     total: number;
     notes: string;
+    instructions: string;
     isPaid: boolean;
     customer?: { name: string; phone: string };
     orderType?: string;
     tableNumber?: number | null;
   } | null>(null);
+
+  const formatLocalDateTime = (value?: string | null) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  };
 
   const openPrint = (order: (typeof savedOrders)[0], isPaid: boolean) => {
     setPrintOrder({
@@ -31,6 +39,7 @@ export default function OrdersPage() {
       items: order.items,
       total: order.total,
       notes: order.notes ?? "",
+      instructions: order.instructions ?? "",
       isPaid,
       customer: order.customerName
         ? { name: order.customerName, phone: order.customerPhone ?? "" }
@@ -84,6 +93,7 @@ export default function OrdersPage() {
           cartItems={printOrder.items}
           totalPrice={printOrder.total}
           notes={printOrder.notes}
+          instructions={printOrder.instructions}
           orderId={printOrder.id}
           isPaid={printOrder.isPaid}
           customer={printOrder.customer}
@@ -166,7 +176,7 @@ export default function OrdersPage() {
                       </span>
                     </div>
                     <p className="text-xs text-gray-400 mb-1">
-                      {order.createdAt}
+                      {formatLocalDateTime(order.createdAt)}
                     </p>
                     <div className="flex flex-wrap gap-1 mb-1">
                       {order.orderType && (
@@ -181,7 +191,7 @@ export default function OrdersPage() {
                         </span>
                       )}
                       {order.customerName && (
-                        <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                        <span className="text-sm font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
                           👤 {order.customerName}
                         </span>
                       )}
@@ -194,6 +204,11 @@ export default function OrdersPage() {
                     {order.notes && (
                       <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1">
                         📝 {order.notes}
+                      </p>
+                    )}
+                    {order.instructions && (
+                      <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 mt-1">
+                        📌 {order.instructions}
                       </p>
                     )}
                   </div>

@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { pgPool } from "../../../lib/db";
 
+async function ensureInstructionsColumn(client: any) {
+  await client.query(
+    `ALTER TABLE orders ADD COLUMN IF NOT EXISTS instructions text`,
+  );
+}
+
 export async function GET(req: NextRequest) {
   let client;
   try {
     const businessDate = req.nextUrl.searchParams.get("businessDate");
     client = await pgPool.connect();
+    await ensureInstructionsColumn(client);
 
     const queryText = businessDate
       ? `SELECT
@@ -13,6 +20,7 @@ export async function GET(req: NextRequest) {
            o.status,
            o.total,
            o.notes,
+           o.instructions,
            o.customer_name,
            o.customer_phone,
            o.order_type,
@@ -46,6 +54,7 @@ export async function GET(req: NextRequest) {
            o.status,
            o.total,
            o.notes,
+           o.instructions,
            o.customer_name,
            o.customer_phone,
            o.order_type,
@@ -85,6 +94,7 @@ export async function GET(req: NextRequest) {
           status:        row.status          as "checkedout",
           total:         Number(row.total),
           notes:         row.notes           as string | null,
+          instructions:  row.instructions    as string | null,
           customerName:  row.customer_name   as string | null,
           customerPhone: row.customer_phone  as string | null,
           orderType:     row.order_type      as string | null,

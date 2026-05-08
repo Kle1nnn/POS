@@ -4,6 +4,8 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import PrintModal from "../components/PrintModal";
 import { CartItem } from "../context/CartContext";
+import { useCart } from "../context/CartContext";
+import { useOrders } from "../context/OrdersContext";
 
 type SalesSummary = {
   businessDate: string | null;
@@ -13,6 +15,8 @@ type SalesSummary = {
 
 export default function HistoryPage() {
   const router = useRouter();
+  const { loadOrder } = useCart();
+  const { setEditingOrderId } = useOrders();
   const [businessDate, setBusinessDate] = useState("");
   const [sales, setSales] = useState<SalesSummary | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -20,8 +24,16 @@ export default function HistoryPage() {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printOrder, setPrintOrder] = useState<{
     id: string; items: CartItem[]; total: number; notes: string;
+    instructions: string;
     customer?: { name: string; phone: string }; orderType?: string; tableNumber?: number | null;
   } | null>(null);
+
+  const formatLocalDateTime = (value?: string | null) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  };
 
   const openPrint = (order: any) => {
     const items: CartItem[] = (order.items || []).map((item: any) => ({
@@ -35,6 +47,7 @@ export default function HistoryPage() {
       items,
       total: Number(order.total),
       notes: order.notes ?? "",
+      instructions: order.instructions ?? "",
       customer: order.customerName ? { name: order.customerName, phone: order.customerPhone ?? "" } : undefined,
       orderType: order.orderType,
       tableNumber: order.tableNumber,
@@ -114,6 +127,20 @@ export default function HistoryPage() {
     }
   };
 
+  const handleEdit = (order: any) => {
+    const items: CartItem[] = (order.items || []).map((item: any) => ({
+      ...item,
+      cartKey:
+        item.cartKey ??
+        `${item.name}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}`,
+      quantity: item.quantity ?? 1,
+      price: item.price ?? item.unit_price ?? 0,
+    }));
+    loadOrder(items);
+    setEditingOrderId(order.orderCode);
+    router.push("/");
+  };
+
   const handleRecalculate = async () => {
     if (!confirm("Recalculate all sales totals from actual order data? This fixes any incorrect totals.")) return;
     try {
@@ -148,6 +175,7 @@ export default function HistoryPage() {
           cartItems={printOrder.items}
           totalPrice={printOrder.total}
           notes={printOrder.notes}
+          instructions={printOrder.instructions}
           orderId={printOrder.id}
           isPaid={true}
           customer={printOrder.customer}
@@ -235,7 +263,7 @@ export default function HistoryPage() {
                         </span>
                       )}
                       {order.customerName && (
-                        <span className="text-[0.65rem] bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">👤 {order.customerName}</span>
+                        <span className="text-sm font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">👤 {order.customerName}</span>
                       )}
                       {order.customerPhone && (
                         <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">📞 {order.customerPhone}</span>
@@ -244,9 +272,12 @@ export default function HistoryPage() {
                     {order.notes && (
                       <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 mt-1">📝 {order.notes}</p>
                     )}
-                    <p className="text-xs text-gray-400 mt-0.5">Placed: {order.createdAt}</p>
+                    {order.instructions && (
+                      <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 mt-1">📌 {order.instructions}</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">Placed: {formatLocalDateTime(order.createdAt)}</p>
                     {order.checkedOutAt && (
-                      <p className="text-xs text-gray-400">Checked out: {order.checkedOutAt}</p>
+                      <p className="text-xs text-gray-400">Checked out: {formatLocalDateTime(order.checkedOutAt)}</p>
                     )}
                   </div>
                   <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1 rounded-full">✓ Completed</span>
@@ -278,6 +309,8 @@ export default function HistoryPage() {
                   <div className="flex gap-2">
                     <button onClick={() => openPrint(order)}
                       className="text-sm px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold transition-colors active:scale-95">🖨️ Print</button>
+                    <button onClick={() => handleEdit(order)}
+                      className="text-sm px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors active:scale-95">✏️ Edit</button>
                     <button onClick={() => handleDelete(order.orderCode)}
                       className="text-sm px-3 py-2 rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors active:scale-95">Remove</button>
                   </div>

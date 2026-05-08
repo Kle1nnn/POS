@@ -20,6 +20,7 @@ export interface Order {
   items: CartItem[];
   total: number;
   notes?: string;
+  instructions?: string;
   createdAt: string;
   status: OrderStatus;
   checkedOutAt?: string;
@@ -32,6 +33,7 @@ type OrdersContextType = {
     items: CartItem[],
     total: number,
     notes?: string,
+    instructions?: string,
     customerName?: string,
     customerPhone?: string,
     orderType?: string,
@@ -44,6 +46,7 @@ type OrdersContextType = {
     items: CartItem[],
     total: number,
     notes?: string,
+    instructions?: string,
   ) => void;
   editingOrderId: string | null;
   setEditingOrderId: (id: string | null) => void;
@@ -99,6 +102,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
             status: OrderStatus;
             total: number;
             notes?: string;
+            instructions?: string;
             customerName?: string;
             customerPhone?: string;
             orderType?: string;
@@ -113,6 +117,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
           items: o.items,
           total: o.total,
           notes: o.notes,
+          instructions: o.instructions,
           customerName: o.customerName,
           customerPhone: o.customerPhone,
           orderType: o.orderType,
@@ -134,6 +139,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     items: CartItem[],
     total: number,
     notes?: string,
+    instructions?: string,
     customerName?: string,
     customerPhone?: string,
     orderType?: string,
@@ -145,6 +151,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
       items,
       total,
       notes,
+      instructions,
       customerName,
       customerPhone,
       orderType,
@@ -171,9 +178,12 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     items: CartItem[],
     total: number,
     notes?: string,
+    instructions?: string,
   ) => {
     setOrders((prev) =>
-      prev.map((o) => (o.id === orderId ? { ...o, items, total, notes } : o)),
+      prev.map((o) =>
+        o.id === orderId ? { ...o, items, total, notes, instructions } : o,
+      ),
     );
   };
 

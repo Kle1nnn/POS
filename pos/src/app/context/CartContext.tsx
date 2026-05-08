@@ -27,6 +27,7 @@ type CartContextType = {
   removeFromCart: (cartKey: string) => void;
   clearCart: () => void;
   updateQuantity: (cartKey: string, newQuantity: number) => void;
+  updatePrice: (cartKey: string, newPrice: number) => void;
   loadOrder: (items: CartItem[]) => void;
   totalPrice: number;
 };
@@ -74,6 +75,13 @@ export function CartProvider({ children }: { children: ReactNode }) {
     );
   };
 
+  const updatePrice = (cartKey: string, newPrice: number) => {
+    if (Number.isNaN(newPrice) || newPrice < 0) return;
+    setCartItems((prev) =>
+      prev.map((i) => (i.cartKey === cartKey ? { ...i, price: newPrice } : i)),
+    );
+  };
+
   const totalPrice = cartItems.reduce(
     (sum, item) => sum + item.price * item.quantity,
     0,
@@ -87,6 +95,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         clearCart,
         updateQuantity,
+        updatePrice,
         loadOrder,
         totalPrice,
       }}

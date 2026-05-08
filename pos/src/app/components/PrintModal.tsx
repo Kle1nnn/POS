@@ -8,6 +8,7 @@ interface PrintModalProps {
   cartItems: CartItem[];
   totalPrice: number;
   notes: string;
+  instructions?: string;
   orderId: string;
   isPaid?: boolean;
   customer?: { name: string; phone: string };
@@ -19,6 +20,7 @@ function buildReceiptHTML(
   cartItems: CartItem[],
   totalPrice: number,
   notes: string,
+  instructions: string,
   orderId: string,
   isPaid: boolean,
   customer?: { name: string; phone: string },
@@ -71,22 +73,21 @@ function buildReceiptHTML(
 <meta charset="UTF-8"/>
 <style>
   /* Pull in a heavy, thermal-printer-friendly font from Google Fonts */
-  @import url('https://fonts.googleapis.com/css2?family=Barlow:wght@600;700;800;900&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
   * { margin:0; padding:0; box-sizing:border-box; }
   body {
-    font-family: 'Barlow', 'Arial Black', 'Arial Bold', Arial, sans-serif;
+    font-family: 'Inter', 'Segoe UI', Tahoma, Arial, sans-serif;
     width: 80mm;
     max-width: 80mm;
     margin: 0 auto;
     padding: 6mm 5mm 8mm;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.03em;
     line-height: 1.35;
     color: #000;
-    -webkit-font-smoothing: none;
-    font-smooth: never;
+    -webkit-font-smoothing: antialiased;
   }
   @media print {
     body { width: 80mm; margin: 0; padding: 5mm 4mm; }
@@ -98,37 +99,37 @@ function buildReceiptHTML(
 
   .store-name {
     font-size: 18px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.02em;
     margin: 6px 0 4px;
     color: #000;
   }
   .store-sub {
     font-size: 15px;
-    font-weight: 300;
+    font-weight: 400;
     margin: 2px 0;
     letter-spacing: 0.05em;
   }
 
   .order-id {
     font-size: 14px;
-    font-weight: 700;
+    font-weight: 600;
     letter-spacing: 0.03em;
     color: #000;
   }
   .paid-stamp {
     text-align: center; margin: 10px 0 6px;
-    font-size: 18px; font-weight: 700; letter-spacing: 0.12em;
+    font-size: 18px; font-weight: 600; letter-spacing: 0.12em;
     color: #000; text-transform: uppercase;
   }
 
   /* Meta table */
   table.meta { width: 100%; border-collapse: collapse; font-size: 13px; }
-  table.meta td { padding: 5px 0; vertical-align: top; color: #000; font-weight: 500; letter-spacing: 0.03em; }
+  table.meta td { padding: 5px 0; vertical-align: top; color: #000; font-weight: 400; letter-spacing: 0.03em; }
   .meta-label {
     display: inline-block;
     min-width: 76px;
-    font-weight: 700;
+    font-weight: 600;
     color: #000;
   }
 
@@ -137,7 +138,7 @@ function buildReceiptHTML(
   table.items th {
     text-align: left;
     font-size: 11px;
-    font-weight: 700;
+    font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.06em;
     color: #000;
@@ -153,20 +154,20 @@ function buildReceiptHTML(
     vertical-align: top;
     border-bottom: 1px solid #ccc;
     color: #000;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.03em;
   }
   table.items td.num {
     font-variant-numeric: tabular-nums;
-    font-weight: 600;
+    font-weight: 500;
   }
-  .item-name  { font-size: 13px; font-weight: 700; display: block; color: #000; letter-spacing: 0.03em; }
-  .item-extras { font-size: 11px; font-weight: 500; color: #333; margin-top: 3px; letter-spacing: 0.03em; }
+  .item-name  { font-size: 13px; font-weight: 500; display: block; color: #000; letter-spacing: 0.03em; }
+  .item-extras { font-size: 11px; font-weight: 400; color: #333; margin-top: 3px; letter-spacing: 0.03em; }
 
   .notes-block {
     font-size: 13px; margin-top: 14px;
     padding: 10px 0 0; border-top: 1px solid #bbb;
-    color: #000; font-weight: 500; letter-spacing: 0.03em;
+    color: #000; font-weight: 400; letter-spacing: 0.03em;
   }
   .grand-total {
     display: flex;
@@ -176,7 +177,7 @@ function buildReceiptHTML(
     padding-top: 12px;
     border-top: 1px solid #000;
     font-size: 16px;
-    font-weight: 600;
+    font-weight: 500;
     color: #000;
   }
   .payment-box {
@@ -185,7 +186,7 @@ function buildReceiptHTML(
     background: #f0f0f0;
     border-radius: 8px;
     font-size: 13px;
-    font-weight: 500;
+    font-weight: 400;
     letter-spacing: 0.03em;
     line-height: 1.45;
     color: #000;
@@ -194,7 +195,7 @@ function buildReceiptHTML(
     text-align: center;
     margin-bottom: 8px;
     font-size: 13px;
-    font-weight: 700;
+    font-weight: 600;
     color: #000;
   }
   .payment-grid { display: flex; justify-content: space-between; gap: 8px; }
@@ -220,9 +221,10 @@ function buildReceiptHTML(
     ${tableRow}
     <tr><td colspan="2" style="padding-top:8px;"><span class="meta-label">Customer</span> ${customer?.name || "—"}</td></tr>
     <tr><td colspan="2" style="padding-top:4px;"><span class="meta-label">Mobile</span> ${customer?.phone || "—"}</td></tr>
+    ${notes ? `<tr><td colspan="2" style="padding-top:4px;"><span class="meta-label">Notes</span> ${notes}</td></tr>` : ""}
   </table>
 
-  ${notes ? `<div class="notes-block"><span class="meta-label">Notes</span> ${notes}</div>` : ""}
+  ${instructions ? `<div class="notes-block"><span class="meta-label">Instructions</span> ${instructions}</div>` : ""}
 
   <table class="items section">
     <thead>
@@ -260,6 +262,7 @@ export default function PrintModal({
   cartItems,
   totalPrice,
   notes,
+  instructions = "",
   orderId,
   isPaid = false,
   customer,
@@ -273,6 +276,7 @@ export default function PrintModal({
     cartItems,
     totalPrice,
     notes,
+    instructions,
     orderId,
     isPaid,
     customer,
