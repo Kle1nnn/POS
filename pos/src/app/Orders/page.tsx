@@ -180,7 +180,7 @@ export default function OrdersPage() {
                     </p>
                     <div className="flex flex-wrap gap-1 mb-1">
                       {order.orderType && (
-                        <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
+                        <span className="text-sm font-semibold bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
                           {order.orderType === "Dine In" && order.tableNumber
                             ? `🍽️ Dine In · Table #${order.tableNumber}`
                             : order.orderType === "Delivery"
@@ -196,7 +196,7 @@ export default function OrdersPage() {
                         </span>
                       )}
                       {order.customerPhone && (
-                        <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
+                        <span className="text-sm font-semibold bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
                           📞 {order.customerPhone}
                         </span>
                       )}
@@ -277,7 +277,7 @@ export default function OrdersPage() {
                       onClick={() => handleCheckout(order.id)}
                       className="text-sm px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white font-semibold transition-colors active:scale-95"
                     >
-                      Checkout
+                      Cash
                     </button>
                   </div>
                 </div>
