@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "POS System",
+  title: "Tasty Bites Pizza , FastFood and BarBQ Tharushah (03213611550 - 03063096900)",
   description: "Point of Sale System",
 };
 

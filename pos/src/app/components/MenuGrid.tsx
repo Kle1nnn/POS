@@ -12,8 +12,9 @@ const CATEGORY_TILES = [
   { key: "Fries", label: "Fries", emoji: "🍟", image: "fries.png" },
   { key: "Icecream", label: "Ice cream", emoji: "🍨", image: "" },
   { key: "Drinks", label: "Drinks", emoji: "🍹", image: "drink.png" },
-  { key: "Pasta", label: "Pasta", emoji: "🍝", image: "" },
-  { key: "Extras", label: "Extras", emoji: "🧂", image: "" },
+  { key: "Pasta", label: "Pasta", emoji: "🍝", image: "pasta.png" },
+  { key: "Toping", label: "Toping", emoji: "🧂", image: "dip.png" },
+  { key: "Deals", label: "Deals", emoji: "🧂", image: "deals.png" },
 ];
 
 const allProducts = products.map((p) =>

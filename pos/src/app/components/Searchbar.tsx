@@ -11,12 +11,11 @@ export default function Searchbar({ value, onChange }: SearchbarProps) {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-between w-full px-4 pt-4 pb-2">
+    <div className="flex items-center justify-between w-full px-4 pt-3 pb-2">
       <div>
-        <div className="text-xs uppercase tracking-[0.15em] text-gray-400 font-medium">
-          Choose Category
+       <div className="font-bold text-xl text-yellow-900 mt-0.5">Tasty Bites Pizza Fast Food and BarBQ Tharushah
         </div>
-        <div className="font-bold text-xl text-gray-900 mt-0.5">Menu</div>
+       <div className="text-xs uppercase tracking-[0.15em] text-gray-400 font-medium">---------------Choose Category---------------</div>
       </div>
       <div className="flex items-center gap-2">
         <button

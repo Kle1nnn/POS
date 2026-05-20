@@ -309,7 +309,7 @@ export default function Billing() {
           </div>
 
           {/* Date/time */}
-          <div className="flex items-center gap-1 px-2.5 py-2.5 rounded-xl bg-gray-50 border border-gray-200 text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
+          <div className="flex items-center gap-1 px-1.5 py-2.5 rounded-xl bg-gray-50 border border-gray-300 text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
             <span>📅</span>
             <span>{currentDate} {currentTime}</span>
           </div>

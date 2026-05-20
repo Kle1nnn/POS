@@ -257,9 +257,9 @@ export default function OrdersPage() {
                   <div className="flex gap-2">
                     <button
                       onClick={() => openPrint(order, false)}
-                      className="text-sm px-3 py-2 rounded-xl bg-gray-50 hover:bg-gray-100 text-gray-600 transition-colors active:scale-95"
+                      className="text-sm px-3 py-2 rounded-xl bg-green-300 hover:bg-green-100 text-gray-600 transition-colors active:scale-95"
                     >
-                      🖨️
+                      🖨️ Print
                     </button>
                     <button
                       onClick={() => handleEdit(order.id)}
@@ -275,7 +275,7 @@ export default function OrdersPage() {
                     </button>
                     <button
                       onClick={() => handleCheckout(order.id)}
-                      className="text-sm px-4 py-2 rounded-xl bg-amber-700 hover:bg-amber-600 text-white font-semibold transition-colors active:scale-95"
+                      className="text-sm px-4 py-2 rounded-xl bg-amber-700 hover:bg-green-600 text-white font-semibold transition-colors active:scale-95"
                     >
                       Cash
                     </button>

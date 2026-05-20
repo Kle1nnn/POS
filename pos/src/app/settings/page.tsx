@@ -164,7 +164,7 @@ export default function SettingsPage() {
                       disabled={savingId === customer.id}
                       className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50 transition-colors"
                     >
-                      {savingId === customer.id ? "Saving..." : "✏️ Edit"}
+                      {savingId === customer.id ? "Saving..." : "✏️ Update"}
                     </button>
                   </div>
                 </div>
