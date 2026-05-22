@@ -562,8 +562,8 @@ export const products: Product[] = [
   },
     {
     id: "65",
-    name: "Double Paratha",
-    description: "Double Paratha",
+    name: "Paratha",
+    description: "Paratha",
     basePrice: 50,
     image: "paratha.png",
     category: "Toping",
@@ -730,7 +730,7 @@ export const products: Product[] = [
   },
   {
     id: "114",
-    name: "(Deal 21) - ",
+    name: "(Deal 21) - 1 Chicken Roll, 1 Zinger Burger, 1 Drink 500ml",
     description: "D21",
     basePrice: 700,
     image: "deal.png",
@@ -821,7 +821,7 @@ export const products: Product[] = [
     name: "Chicken Tikka Chest",
     description: "Tikka Chest",
     basePrice: 450,
-    image: "",
+    image: "tikka chest.png",
     category: "BarBQ",
   },
   {
@@ -941,7 +941,7 @@ export const products: Product[] = [
     name: "Reshmi Kabab Half 2pc",
     description: "Reshmi Kabab Half",
     basePrice: 400,
-    image: "",
+    image: "kabab.png",
     category: "BarBQ",
   },
   {
@@ -949,7 +949,7 @@ export const products: Product[] = [
     name: "Reshmi Kabab Full 5pc",
     description: "Bihari Boti Full",
     basePrice: 800,
-    image: "",
+    image: "kabab.png",
     category: "BarBQ",
   },
   {
