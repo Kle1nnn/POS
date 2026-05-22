@@ -14,7 +14,6 @@ const CATEGORY_TILES = [
   { key: "Pasta", label: "Pasta", emoji: "🍝", image: "pasta.png" },
   { key: "BarBQ", label: "BarBQ", emoji: "🧂", image: "bbq.png" },
   { key: "Drinks", label: "Drinks", emoji: "🍹", image: "drink.png" },
-  { key: "Icecream", label: "Ice cream", emoji: "🍨", image: "icecream.png" },
   { key: "Toping", label: "Toping", emoji: "🧂", image: "dip.png" },
   { key: "Deals", label: "Deals", emoji: "🧂", image: "deals.png" },
 ];
