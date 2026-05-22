@@ -10,9 +10,11 @@ const CATEGORY_TILES = [
   { key: "Rolls", label: "Rolls", emoji: "🌯", image: "roll.png" },
   { key: "Shawarma", label: "Shawarma", emoji: "🥙", image: "shawarma.png" },
   { key: "Fries", label: "Fries", emoji: "🍟", image: "fries.png" },
-  { key: "Icecream", label: "Ice cream", emoji: "🍨", image: "" },
-  { key: "Drinks", label: "Drinks", emoji: "🍹", image: "drink.png" },
+  { key: "Sandwich", label: "Sandwich", emoji: "🍔", image: "sandwich.png" },
   { key: "Pasta", label: "Pasta", emoji: "🍝", image: "pasta.png" },
+  { key: "BarBQ", label: "BarBQ", emoji: "🧂", image: "bbq.png" },
+  { key: "Drinks", label: "Drinks", emoji: "🍹", image: "drink.png" },
+  { key: "Icecream", label: "Ice cream", emoji: "🍨", image: "icecream.png" },
   { key: "Toping", label: "Toping", emoji: "🧂", image: "dip.png" },
   { key: "Deals", label: "Deals", emoji: "🧂", image: "deals.png" },
 ];
