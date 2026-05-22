@@ -813,7 +813,7 @@ export const products: Product[] = [
     name: "Chicken Tikka Leg",
     description: "Tikka Leg",
     basePrice: 400,
-    image: "",
+    image: "tikka leg.png",
     category: "BarBQ",
   },
   {
@@ -957,7 +957,7 @@ export const products: Product[] = [
     name: "Gola Kabab Half 3pc",
     description: "Gola Kabab Half",
     basePrice: 400,
-    image: "",
+    image: "gola kabab.png  ",
     category: "BarBQ",
   },
   {
@@ -965,7 +965,7 @@ export const products: Product[] = [
     name: "Gola Kabab Full 6pc",
     description: "Bihari Boti Full",
     basePrice: 800,
-    image: "",
+    image: "gola kabab.png",
     category: "BarBQ",
   },
   {
