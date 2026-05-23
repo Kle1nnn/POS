@@ -26,6 +26,18 @@ export interface Order {
   checkedOutAt?: string;
 }
 
+/** Snapshot used while editing an order (saved or from history). */
+export type EditingOrderSnapshot = {
+  id: string;
+  status: OrderStatus;
+  notes?: string;
+  instructions?: string;
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
+};
+
 type OrdersContextType = {
   savedOrders: Order[];
   history: Order[];
@@ -47,9 +59,15 @@ type OrdersContextType = {
     total: number,
     notes?: string,
     instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
   ) => void;
+  reloadSavedOrders: () => Promise<void>;
+  editingOrder: EditingOrderSnapshot | null;
   editingOrderId: string | null;
-  setEditingOrderId: (id: string | null) => void;
+  setEditingOrder: (order: EditingOrderSnapshot | null) => void;
 };
 
 const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
@@ -88,49 +106,60 @@ function nextTBTId(): string {
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
   const [orders, setOrders] = useState<Order[]>([]);
-  const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
+  const [editingOrder, setEditingOrder] = useState<EditingOrderSnapshot | null>(
+    null,
+  );
+
+  const mapApiOrders = (
+    rows: {
+      orderCode: string;
+      status: OrderStatus;
+      total: number;
+      notes?: string;
+      instructions?: string;
+      customerName?: string;
+      customerPhone?: string;
+      orderType?: string;
+      tableNumber?: number | null;
+      createdAt: string;
+      checkedOutAt?: string;
+      items: CartItem[];
+    }[],
+  ): Order[] =>
+    rows.map((o) => ({
+      id: o.orderCode,
+      items: o.items,
+      total: o.total,
+      notes: o.notes,
+      instructions: o.instructions,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      orderType: o.orderType,
+      tableNumber: o.tableNumber,
+      createdAt: o.createdAt,
+      status: o.status,
+      checkedOutAt: o.checkedOutAt,
+    }));
+
+  const reloadSavedOrders = async () => {
+    try {
+      const res = await fetch("/api/orders/list");
+      if (!res.ok) return;
+      const data = (await res.json()) as {
+        orders: Parameters<typeof mapApiOrders>[0];
+      };
+      const mapped = mapApiOrders(data.orders ?? []);
+      seedCounter(mapped);
+      setOrders(mapped);
+    } catch (e) {
+      console.error("Failed to reload orders from database", e);
+    }
+  };
 
   useEffect(() => {
     const loadFromDb = async () => {
-      await seedCounterFromDb(); // always seed from DB first on every load
-      try {
-        const res = await fetch("/api/orders/list");
-        if (!res.ok) return;
-        const data = (await res.json()) as {
-          orders: {
-            orderCode: string;
-            status: OrderStatus;
-            total: number;
-            notes?: string;
-            instructions?: string;
-            customerName?: string;
-            customerPhone?: string;
-            orderType?: string;
-            tableNumber?: number | null;
-            createdAt: string;
-            checkedOutAt?: string;
-            items: CartItem[];
-          }[];
-        };
-        const mapped = data.orders.map((o) => ({
-          id: o.orderCode,
-          items: o.items,
-          total: o.total,
-          notes: o.notes,
-          instructions: o.instructions,
-          customerName: o.customerName,
-          customerPhone: o.customerPhone,
-          orderType: o.orderType,
-          tableNumber: o.tableNumber,
-          createdAt: o.createdAt,
-          status: o.status,
-          checkedOutAt: o.checkedOutAt,
-        }));
-        seedCounter(mapped); // also seed from loaded orders as backup
-        setOrders((prev) => (prev.length > 0 ? prev : mapped));
-      } catch (e) {
-        console.error("Failed to load orders from database", e);
-      }
+      await seedCounterFromDb();
+      await reloadSavedOrders();
     };
     loadFromDb();
   }, []);
@@ -179,10 +208,26 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     total: number,
     notes?: string,
     instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
   ) => {
     setOrders((prev) =>
       prev.map((o) =>
-        o.id === orderId ? { ...o, items, total, notes, instructions } : o,
+        o.id === orderId
+          ? {
+              ...o,
+              items,
+              total,
+              notes,
+              instructions,
+              customerName,
+              customerPhone,
+              orderType,
+              tableNumber,
+            }
+          : o,
       ),
     );
   };
@@ -193,6 +238,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
 
   const savedOrders = orders.filter((o) => o.status === "saved");
   const history = orders.filter((o) => o.status === "checkedout");
+  const editingOrderId = editingOrder?.id ?? null;
 
   return (
     <OrdersContext.Provider
@@ -203,8 +249,10 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
         checkoutOrder,
         deleteOrder,
         updateOrder,
+        reloadSavedOrders,
+        editingOrder,
         editingOrderId,
-        setEditingOrderId,
+        setEditingOrder,
       }}
     >
       {children}

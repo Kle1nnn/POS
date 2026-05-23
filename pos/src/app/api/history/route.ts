@@ -48,7 +48,7 @@ export async function GET(req: NextRequest) {
          WHERE o.status = 'checkedout' AND o.business_date = $1::date
          GROUP BY o.id
          ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
-         LIMIT 50`
+         LIMIT 100`
       : `SELECT
            o.order_code,
            o.status,
@@ -82,7 +82,7 @@ export async function GET(req: NextRequest) {
          WHERE o.status = 'checkedout'
          GROUP BY o.id
          ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
-         LIMIT 50`;
+         LIMIT 100`;
 
     const params = businessDate ? [businessDate] : [];
     const result = await client.query(queryText, params);

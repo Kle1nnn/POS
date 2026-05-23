@@ -19,6 +19,11 @@ type UpdateOrderBody = {
   total: number;
   notes?: string;
   instructions?: string;
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
+  status?: "saved" | "checkedout";
 };
 
 async function ensureInstructionsColumn(client: any) {
@@ -64,7 +69,18 @@ async function recalcSales(client: any, businessDate?: string | null) {
 export async function PATCH(req: NextRequest) {
   let client;
   try {
-    const { orderCode, items, total, notes, instructions } = (await req.json()) as UpdateOrderBody;
+    const {
+      orderCode,
+      items,
+      total,
+      notes,
+      instructions,
+      customerName,
+      customerPhone,
+      orderType,
+      tableNumber,
+      status: newStatus,
+    } = (await req.json()) as UpdateOrderBody;
     if (!orderCode) return NextResponse.json({ error: "orderCode is required" }, { status: 400 });
     if (!items?.length) return NextResponse.json({ error: "Order must have at least one item" }, { status: 400 });
 
@@ -75,9 +91,39 @@ export async function PATCH(req: NextRequest) {
       `SELECT id, status, business_date FROM orders WHERE order_code = $1 FOR UPDATE`, [orderCode]
     );
     if (orderResult.rowCount === 0) { await client.query("ROLLBACK"); return NextResponse.json({ error: "Order not found" }, { status: 404 }); }
-    const { id: orderId, status, business_date } = orderResult.rows[0];
+    const { id: orderId, status: previousStatus, business_date } = orderResult.rows[0];
 
-    await client.query(`UPDATE orders SET total = $1, notes = $2, instructions = $3 WHERE id = $4`, [total, notes ?? null, instructions ?? null, orderId]);
+    const targetStatus =
+      newStatus === "saved" || newStatus === "checkedout" ? newStatus : previousStatus;
+
+    await client.query(
+      `UPDATE orders
+       SET total = $1,
+           notes = $2,
+           instructions = $3,
+           customer_name = $4,
+           customer_phone = $5,
+           order_type = $6,
+           table_number = $7,
+           status = $8,
+           checked_out_at = CASE
+             WHEN $8 = 'saved' THEN NULL
+             WHEN $8 = 'checkedout' AND checked_out_at IS NULL THEN NOW()
+             ELSE checked_out_at
+           END
+       WHERE id = $9`,
+      [
+        total,
+        notes ?? null,
+        instructions ?? null,
+        customerName ?? null,
+        customerPhone ?? null,
+        orderType ?? "Delivery",
+        tableNumber ?? null,
+        targetStatus,
+        orderId,
+      ],
+    );
     await client.query(`DELETE FROM order_items WHERE order_id = $1`, [orderId]);
     for (const item of items) {
       await client.query(
@@ -87,7 +133,7 @@ export async function PATCH(req: NextRequest) {
          item.selectedSize ?? null, item.selectedTopping ?? null, item.selectedSauce ?? null, item.price, item.quantity]
       );
     }
-    if (status === "checkedout") {
+    if (previousStatus === "checkedout" || targetStatus === "checkedout") {
       await recalcSales(client, business_date);
     }
     await client.query("COMMIT");

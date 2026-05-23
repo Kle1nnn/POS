@@ -19,8 +19,13 @@ export default function Billing() {
   const { cartItems, removeFromCart, clearCart, updateQuantity, updatePrice, totalPrice } =
     useCart();
   const {
-    saveOrder, checkoutOrder, updateOrder,
-    editingOrderId, setEditingOrderId, savedOrders,
+    saveOrder,
+    checkoutOrder,
+    updateOrder,
+    editingOrder,
+    editingOrderId,
+    setEditingOrder,
+    reloadSavedOrders,
   } = useOrders();
   const router = useRouter();
 
@@ -62,29 +67,29 @@ export default function Billing() {
   const isEditMode = !!editingOrderId;
 
   useEffect(() => {
-    if (editingOrderId) {
-      const order = savedOrders.find((o) => o.id === editingOrderId);
-      if (!order) return;
-      if (order.notes !== undefined) setNotes(order.notes ?? "");
-      if (order.instructions !== undefined) setInstructions(order.instructions ?? "");
+    if (!editingOrder) return;
 
-      const resolvedName = order.customerName?.trim() || "Walk-In Customer";
-      const isWalkInCustomer = resolvedName === "Walk-In Customer";
-      setCustomerName(resolvedName);
-      setCustomerPhone(order.customerPhone ?? "");
-      setIsWalkIn(isWalkInCustomer);
+    setNotes(editingOrder.notes ?? "");
+    setInstructions(editingOrder.instructions ?? "");
 
-      const validOrderType = (
-        order.orderType === "Delivery" ||
-        order.orderType === "Dine In" ||
-        order.orderType === "Take Away"
-      )
-        ? order.orderType
-        : "Delivery";
-      setOrderType(validOrderType);
-      setTableNumber(validOrderType === "Dine In" ? (order.tableNumber ?? null) : null);
-    }
-  }, [editingOrderId]);
+    const resolvedName = editingOrder.customerName?.trim() || "Walk-In Customer";
+    const isWalkInCustomer = resolvedName === "Walk-In Customer";
+    setCustomerName(resolvedName);
+    setCustomerPhone(editingOrder.customerPhone ?? "");
+    setIsWalkIn(isWalkInCustomer);
+
+    const validOrderType = (
+      editingOrder.orderType === "Delivery" ||
+      editingOrder.orderType === "Dine In" ||
+      editingOrder.orderType === "Take Away"
+    )
+      ? editingOrder.orderType
+      : "Delivery";
+    setOrderType(validOrderType);
+    setTableNumber(
+      validOrderType === "Dine In" ? (editingOrder.tableNumber ?? null) : null,
+    );
+  }, [editingOrder]);
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -181,23 +186,150 @@ export default function Billing() {
     selectedSauce: item.selectedSauce, price: item.price, quantity: item.quantity,
   }));
 
-  const handleUpdateOrder = async () => {
-    if (cartItems.length === 0 || !editingOrderId) return;
-    setUpdating(true);
-    try {
-      const res = await fetch("/api/orders", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: editingOrderId, items: buildItems(), total: totalPrice, notes, instructions }) });
-      if (!res.ok) { const errData = await res.json().catch(() => ({})); throw new Error((errData as { error?: string }).error || `HTTP ${res.status}`); }
-      updateOrder(editingOrderId, [...cartItems], totalPrice, notes, instructions);
-      const snap = { id: editingOrderId, items: [...cartItems], total: totalPrice, notes, instructions };
-      const cust = { name: customerName, phone: customerPhone };
-      setEditingOrderId(null); resetForm(); showToast("Order updated!");
-      openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber);
-      router.push("/Orders");
-    } catch (error) { showToast(`Update failed: ${error instanceof Error ? error.message : "unknown error"}`); }
-    finally { setUpdating(false); }
+  const patchEditingOrder = async (status?: "saved" | "checkedout") => {
+    if (!editingOrderId || !editingOrder) {
+      throw new Error("No order being edited");
+    }
+    const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName.trim();
+    const body: Record<string, unknown> = {
+      orderCode: editingOrderId,
+      items: buildItems(),
+      total: totalPrice,
+      notes,
+      instructions,
+      customerName: finalCustomerName,
+      customerPhone: customerPhone.trim(),
+      orderType,
+      tableNumber: orderType === "Dine In" ? tableNumber : null,
+    };
+    if (status) body.status = status;
+
+    const res = await fetch("/api/orders", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(
+        (errData as { error?: string }).error || `HTTP ${res.status}`,
+      );
+    }
   };
 
-  const handleCancelEdit = () => { setEditingOrderId(null); resetForm(); };
+  const finishEdit = (
+    snap: { id: string; items: CartItem[]; total: number; notes: string; instructions: string },
+    cust: Customer,
+    isPaid: boolean,
+    destination: "/Orders" | "/History",
+  ) => {
+    setEditingOrder(null);
+    resetForm();
+    openPrintModal(
+      snap.id,
+      snap.items,
+      snap.total,
+      snap.notes,
+      snap.instructions,
+      isPaid,
+      cust,
+      orderType,
+      tableNumber,
+    );
+    router.push(destination);
+  };
+
+  /** Save edit — keeps or moves order to the saved (unpaid) list. */
+  const handleEditSave = async () => {
+    if (cartItems.length === 0 || !editingOrderId || !editingOrder) return;
+    setUpdating(true);
+    try {
+      const wasCheckedOut = editingOrder.status === "checkedout";
+      await patchEditingOrder(wasCheckedOut ? "saved" : undefined);
+
+      const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName.trim();
+      const snap = {
+        id: editingOrderId,
+        items: [...cartItems],
+        total: totalPrice,
+        notes,
+        instructions,
+      };
+      const cust = { name: finalCustomerName, phone: customerPhone.trim() };
+
+      if (wasCheckedOut) {
+        await reloadSavedOrders();
+      } else {
+        updateOrder(
+          editingOrderId,
+          snap.items,
+          snap.total,
+          snap.notes,
+          snap.instructions,
+          finalCustomerName,
+          cust.phone,
+          orderType,
+          orderType === "Dine In" ? tableNumber : null,
+        );
+      }
+
+      showToast(wasCheckedOut ? "Order moved to saved list" : "Order saved!");
+      finishEdit(snap, cust, false, "/Orders");
+    } catch (error) {
+      showToast(
+        `Save failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  /** Pay — checkout (or keep checked out) after editing. */
+  const handleEditPay = async () => {
+    if (cartItems.length === 0 || !editingOrderId || !editingOrder) return;
+    setUpdating(true);
+    try {
+      const wasSaved = editingOrder.status === "saved";
+      await patchEditingOrder();
+
+      const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName.trim();
+      const snap = {
+        id: editingOrderId,
+        items: [...cartItems],
+        total: totalPrice,
+        notes,
+        instructions,
+      };
+      const cust = { name: finalCustomerName, phone: customerPhone.trim() };
+
+      if (wasSaved) {
+        try {
+          await fetch("/api/orders/checkout", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ orderCode: editingOrderId }),
+          });
+        } catch (error) {
+          console.error("Failed to checkout order", error);
+        }
+        checkoutOrder(editingOrderId);
+      }
+
+      showToast(wasSaved ? "Order checked out!" : "Order updated!");
+      finishEdit(snap, cust, true, "/History");
+    } catch (error) {
+      showToast(
+        `Pay failed: ${error instanceof Error ? error.message : "unknown error"}`,
+      );
+    } finally {
+      setUpdating(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditingOrder(null);
+    resetForm();
+  };
 
   const handleSaveOrder = async () => {
     if (cartItems.length === 0) return;
@@ -377,7 +509,8 @@ export default function Billing() {
       <div className="px-3 py-2 border-b border-gray-100 bg-gray-50">
         {isEditMode && (
           <div className="text-xs text-center text-blue-600 font-semibold bg-blue-50 rounded-lg py-1 px-2 mb-2">
-            ✏️ Editing order {editingOrderId?.slice(-6).toUpperCase()}
+            ✏️ Editing {editingOrder?.status === "checkedout" ? "completed" : "saved"} order{" "}
+            {editingOrderId?.slice(-6).toUpperCase()}
           </div>
         )}
         <div className="grid text-[0.62rem] font-semibold text-gray-400 uppercase tracking-wide" style={{ gridTemplateColumns: "1fr 80px 76px 40px" }}>
@@ -484,12 +617,29 @@ export default function Billing() {
 
         {isEditMode ? (
           <div className="space-y-2">
-            <button onClick={handleUpdateOrder} disabled={cartItems.length === 0 || updating}
-              className="w-full bg-blue-600 text-white py-3.5 rounded-xl hover:bg-blue-700 text-base font-bold transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]">
-              {updating ? "Updating…" : "💾 Update Order"}
-            </button>
-            <button onClick={handleCancelEdit}
-              className="w-full bg-gray-100 text-gray-600 py-3 rounded-xl hover:bg-gray-200 transition-colors text-sm font-semibold active:scale-[0.99]">
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={handleEditSave}
+                disabled={cartItems.length === 0 || updating}
+                className="py-3.5 rounded-xl bg-gray-800 text-white text-sm font-bold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
+              >
+                {updating ? "…" : "💾 Save"}
+              </button>
+              <button
+                onClick={handleEditPay}
+                disabled={cartItems.length === 0 || updating}
+                className="py-3.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
+              >
+                {updating ? "…" : "✅ Pay"}
+              </button>
+            </div>
+            <p className="text-[0.65rem] text-gray-400 text-center leading-snug">
+              Save moves a cashed order back to the saved list. Pay keeps it completed.
+            </p>
+            <button
+              onClick={handleCancelEdit}
+              className="w-full bg-gray-100 text-gray-600 py-3 rounded-xl hover:bg-gray-200 transition-colors text-sm font-semibold active:scale-[0.99]"
+            >
               Cancel Edit
             </button>
           </div>

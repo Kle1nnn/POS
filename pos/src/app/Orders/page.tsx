@@ -8,7 +8,7 @@ import PrintModal from "../components/PrintModal";
 import { CartItem } from "../context/CartContext";
 
 export default function OrdersPage() {
-  const { savedOrders, checkoutOrder, deleteOrder, setEditingOrderId } =
+  const { savedOrders, checkoutOrder, deleteOrder, setEditingOrder } =
     useOrders();
   const { loadOrder } = useCart();
   const router = useRouter();
@@ -54,7 +54,16 @@ export default function OrdersPage() {
     const order = savedOrders.find((o) => o.id === orderId);
     if (!order) return;
     loadOrder(order.items);
-    setEditingOrderId(orderId);
+    setEditingOrder({
+      id: order.id,
+      status: "saved",
+      notes: order.notes,
+      instructions: order.instructions,
+      customerName: order.customerName,
+      customerPhone: order.customerPhone,
+      orderType: order.orderType,
+      tableNumber: order.tableNumber,
+    });
     router.push("/");
   };
 

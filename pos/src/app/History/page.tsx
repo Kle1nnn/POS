@@ -16,7 +16,7 @@ type SalesSummary = {
 export default function HistoryPage() {
   const router = useRouter();
   const { loadOrder } = useCart();
-  const { setEditingOrderId } = useOrders();
+  const { setEditingOrder } = useOrders();
   const [businessDate, setBusinessDate] = useState("");
   const [sales, setSales] = useState<SalesSummary | null>(null);
   const [orders, setOrders] = useState<any[]>([]);
@@ -137,7 +137,16 @@ export default function HistoryPage() {
       price: item.price ?? item.unit_price ?? 0,
     }));
     loadOrder(items);
-    setEditingOrderId(order.orderCode);
+    setEditingOrder({
+      id: order.orderCode,
+      status: "checkedout",
+      notes: order.notes ?? "",
+      instructions: order.instructions ?? "",
+      customerName: order.customerName ?? undefined,
+      customerPhone: order.customerPhone ?? undefined,
+      orderType: order.orderType ?? undefined,
+      tableNumber: order.tableNumber ?? null,
+    });
     router.push("/");
   };
 
@@ -215,6 +224,12 @@ export default function HistoryPage() {
             <button onClick={handleBusinessDateSave}
               className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-95">
               Set &amp; Load
+            </button>
+            <button
+              onClick={() => router.push("/History/products")}
+              className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-600 transition-colors active:scale-95"
+            >
+              📦 Daily Product Sales
             </button>
             <button onClick={handleFixTotals}
               className="px-4 py-2 rounded-xl bg-red-700 text-white text-sm font-semibold hover:bg-red-600 transition-colors active:scale-95"

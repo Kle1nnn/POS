@@ -93,6 +93,41 @@ export async function POST(req: NextRequest) {
   }
 }
 
+// DELETE /api/customers?id=123
+export async function DELETE(req: NextRequest) {
+  const idParam = req.nextUrl.searchParams.get("id");
+  const id = idParam ? Number(idParam) : NaN;
+
+  if (!Number.isInteger(id) || id <= 0) {
+    return NextResponse.json({ error: "valid id is required" }, { status: 400 });
+  }
+
+  let client;
+  try {
+    await tableReady;
+    client = await pgPool.connect();
+
+    const result = await client.query(
+      `DELETE FROM customers WHERE id = $1 RETURNING id`,
+      [id],
+    );
+
+    if (!result.rowCount) {
+      return NextResponse.json({ error: "Customer not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ ok: true }, { status: 200 });
+  } catch (err) {
+    console.error("Failed to delete customer", err);
+    return NextResponse.json(
+      { error: "Failed to delete customer" },
+      { status: 500 },
+    );
+  } finally {
+    if (client) client.release();
+  }
+}
+
 // PATCH /api/customers — { id, name, phone } → update existing customer
 export async function PATCH(req: NextRequest) {
   let client;
