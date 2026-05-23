@@ -586,7 +586,7 @@ export const products: Product[] = [
   },
   {
     id: "68",
-    name: "(Deal 3) - 1 Chicken Roll,  ! Shawarma Roll, 1 Masala Fries",
+    name: "(Deal 3) - 1 Chicken Roll, Shawarma Roll, 1 Masala Fries",
     description: "D3",
     basePrice: 650,
     image: "deal.png",
@@ -634,7 +634,7 @@ export const products: Product[] = [
   },
   {
     id: "102",
-    name: "(Deal 9) - ",
+    name: "(Deal 9) - 1 Qtr Broast, 1 Zinger Burger, 1 Chicken Roll, 1 Drink 1.5ltr",
     description: "D9",
     basePrice: 1200,
     image: "deal.png",
@@ -642,7 +642,7 @@ export const products: Product[] = [
   },
   {
     id: "103",
-    name: "(Deal 10) - ",
+    name: "(Deal 10) - 1 Large Pizza, 1 Afghani Roll Med, 1 Drink 1ltr",
     description: "D10",
     basePrice: 1750,
     image: "deal.png",
@@ -650,7 +650,7 @@ export const products: Product[] = [
   },
   {
     id: "104",
-    name: "(Deal 11) - ",
+    name: "(Deal 11) - 1 Zinger Roll, 1 Mayo Fries, 1 Drink 500ml ",
     description: "D11",
     basePrice: 600,
     image: "deal.png",
@@ -658,7 +658,7 @@ export const products: Product[] = [
   },
   {
     id: "105",
-    name: "(Deal 12) - ",
+    name: "(Deal 12) - 3 Small Pizza, 1 Drink 1.5ltr",
     description: "D12",
     basePrice: 1450,
     image: "deal.png",
@@ -666,7 +666,7 @@ export const products: Product[] = [
   },
   {
     id: "106",
-    name: "(Deal 13) - ",
+    name: "(Deal 13) - 2 Zinger Burger, 1 Masala Fries, 1 Drink 500ml",
     description: "D13",
     basePrice: 900,
     image: "deal.png",
@@ -674,7 +674,7 @@ export const products: Product[] = [
   },
   {
     id: "107",
-    name: "(Deal 14) - ",
+    name: "(Deal 14) - 1 Half Broast 4pcs, 1 Zinger Burger, 1 Drink 500ml",
     description: "D14",
     basePrice: 1300,
     image: "deal.png",
@@ -682,7 +682,7 @@ export const products: Product[] = [
   },
   {
     id: "108",
-    name: "(Deal 15) - ",
+    name: "(Deal 15) - 1 Pasta Med, 1 Zinger Burger, 1 Shawarma Roll, 1 Drink 500ml",
     description: "D15",
     basePrice: 1050,
     image: "deal.png",
@@ -690,7 +690,7 @@ export const products: Product[] = [
   },
   {
     id: "109",
-    name: "(Deal 16) - ",
+    name: "(Deal 16) - 1 Small Pizza, 1 Medium Pizza, 1 Chicken Roll, 1 Drink 1.5ltr",
     description: "D16",
     basePrice: 1650,
     image: "deal.png",
@@ -698,7 +698,7 @@ export const products: Product[] = [
   },
   {
     id: "110",
-    name: "(Deal 17) - ",
+    name: "(Deal 17) - 1 Afghani Roll Med, 1 Zinger Burger, 1 Drink 1ltr",
     description: "D17",
     basePrice: 900,
     image: "deal.png",
@@ -706,7 +706,7 @@ export const products: Product[] = [
   },
   {
     id: "111",
-    name: "(Deal 18) - ",
+    name: "(Deal 18) - 1 Large Pizza, 1 Shawarma Roll, 1 Zinger Burger, 1 Drink 1.5ltr",
     description: "D18",
     basePrice: 1850,
     image: "deal.png",
@@ -714,7 +714,7 @@ export const products: Product[] = [
   },
   {
     id: "112",
-    name: "(Deal 19) - ",
+    name: "(Deal 19) - 2 Large Pizza, 1 Drink Jumbo",
     description: "D19",
     basePrice: 2500,
     image: "deal.png",
@@ -722,7 +722,7 @@ export const products: Product[] = [
   },
   {
     id: "113",
-    name: "(Deal 20) - ",
+    name: "(Deal 20) - 1 Half Broast, 1 Small Pizza, 1 Drink 1ltr",
     description: "D20",
     basePrice: 1450,
     image: "deal.png",
@@ -738,7 +738,7 @@ export const products: Product[] = [
   },
   {
     id: "115",
-    name: "(Deal 22) - ",
+    name: "(Deal 22) - 3 Zinger Burger, 1 Drink 1ltr",
     description: "D22",
     basePrice: 1250,
     image: "deal.png",
@@ -746,7 +746,7 @@ export const products: Product[] = [
   },
   {
     id: "116",
-    name: "(Deal 23) - ",
+    name: "(Deal 23) - 2 Medium Pizza, 1 Small Pizza, 1 Drink 1ltr",
     description: "D23",
     basePrice: 2100,
     image: "deal.png",
@@ -754,7 +754,7 @@ export const products: Product[] = [
   },
   {
     id: "117",
-    name: "(Deal 24) - ",
+    name: "(Deal 24) - 5 Shawarma Roll, 1 Drink 1ltr",
     description: "D24",
     basePrice: 1250,
     image: "deal.png",
@@ -762,7 +762,7 @@ export const products: Product[] = [
   },
   {
     id: "118",
-    name: "(Deal 25) - ",
+    name: "(Deal 25) - 1 Large Pizza, 1 Mayo Roll, 1 Masala Fries,1 Drink 1.5ltr",
     description: "D25",
     basePrice: 1650,
     image: "deal.png",
@@ -770,7 +770,7 @@ export const products: Product[] = [
   },
   {
     id: "119",
-    name: "(Deal 26) - ",
+    name: "(Deal 26) - 2 Zinger Burger, 2 Chicken Roll, 1 Drink 1ltr",
     description: "D26",
     basePrice: 1350,
     image: "deal.png",
@@ -778,7 +778,7 @@ export const products: Product[] = [
   },
   {
     id: "120",
-    name: "(Deal 27) - ",
+    name: "(Deal 27) - 5 Zinger Burger, 1 Drink 1ltr",
     description: "D27",
     basePrice: 1800,
     image: "deal.png",
@@ -786,7 +786,7 @@ export const products: Product[] = [
   },
   {
     id: "121",
-    name: "(Deal 28) - ",
+    name: "(Deal 28) - 3 Large Pizza, 1 Drink Jumbo",
     description: "D28",
     basePrice: 3700,
     image: "deal.png",
