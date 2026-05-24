@@ -189,7 +189,7 @@ export const products: Product[] = [
     name: "Star Pizza",
     description: "Star pizza",
     basePrice: 0,
-    sizePrices: { S: 550, M: 1000, L: 1500 },
+    sizePrices: { S: 550, M: 1000, L: 1400 },
     image: "pizzaa.png",
     category: "Pizza",
     sizes: ["M", "L"],
@@ -946,7 +946,7 @@ export const products: Product[] = [
   },
   {
     id: "89",
-    name: "Reshmi Kabab Full 5pc",
+    name: "Reshmi Kabab Full 4pc",
     description: "Bihari Boti Full",
     basePrice: 800,
     image: "kabab.png",
