@@ -264,7 +264,7 @@ export default function SettingsPage() {
               <button
                 onClick={addCustomer}
                 disabled={isAdding}
-                className="px-3 py-2 rounded-lg bg-green-50 text-green-700 text-sm font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors"
+                className="px-3 py-2 rounded-lg bg-green-50 text-green-900 text-sm font-semibold hover:bg-green-200 disabled:opacity-50 transition-colors"
               >
                 {isAdding ? "Saving..." : "Save Contact"}
               </button>
@@ -328,7 +328,7 @@ export default function SettingsPage() {
                         }
                         className="px-3 py-2 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50 transition-colors"
                       >
-                        {savingId === customer.id ? "Saving..." : "Save Contact"}
+                        {savingId === customer.id ? "Saving..." : "Update"}
                       </button>
                       <button
                         onClick={() => deleteCustomer(customer)}

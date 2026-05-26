@@ -564,7 +564,7 @@ export const products: Product[] = [
     id: "65",
     name: "Paratha",
     description: "Paratha",
-    basePrice: 50,
+    basePrice: 60,
     image: "paratha.png",
     category: "Toping",
   },
@@ -809,6 +809,14 @@ export const products: Product[] = [
     category: "Rolls",
   },
   {
+    id: "124",
+    name: "Double Paratha",
+    description: "Double Paratha",
+    basePrice: 70,
+    image: "paratha.png",
+    category: "Toping",
+  },
+  {
     id: "72",
     name: "Chicken Tikka Leg",
     description: "Tikka Leg",
@@ -837,7 +845,7 @@ export const products: Product[] = [
     name: "Green Tikka",
     description: "Green Tikka",
     basePrice: 500,
-    image: "",
+    image: "green tikka.png",
     category: "BarBQ",
   },
   {
@@ -925,7 +933,7 @@ export const products: Product[] = [
     name: "Green Boti Half 5pc",
     description: "Green Boti Half",
     basePrice: 400,
-    image: "",
+    image: "green boti.png",
     category: "BarBQ",
   },
   {
@@ -933,7 +941,7 @@ export const products: Product[] = [
     name: "Green Boti Full 10pc",
     description: "Green Boti Full",
     basePrice: 800,
-    image: "",
+    image: "green boti.png",
     category: "BarBQ",
   },
   {
