@@ -177,11 +177,19 @@ export default function HistoryProductSalesPage() {
                 key={category}
                 className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden"
               >
-                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center">
+                <div className="px-4 py-3 bg-gray-50 border-b border-gray-100 flex justify-between items-center gap-3">
                   <h2 className="text-sm font-bold text-gray-800">{category}</h2>
-                  <span className="text-xs text-gray-500 font-medium">
-                    {items.reduce((s, i) => s + i.quantitySold, 0)} sold
-                  </span>
+                  <div className="text-right flex-shrink-0">
+                    <p className="text-xs text-gray-500 font-medium">
+                      {items.reduce((s, i) => s + i.quantitySold, 0)} sold
+                    </p>
+                    <p className="text-sm font-bold text-gray-900 tabular-nums">
+                      Rs.{" "}
+                      {items
+                        .reduce((s, i) => s + i.revenue, 0)
+                        .toFixed(0)}
+                    </p>
+                  </div>
                 </div>
                 <div className="divide-y divide-gray-50">
                   {items.map((item, idx) => {

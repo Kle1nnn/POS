@@ -1,0 +1,2 @@
+{"sessionId":"507331","location":"api/backup/route.ts:GET","message":"Backup exported","data":{"orders":5129,"customers":397,"orderItems":7331},"timestamp":1782844091270,"hypothesisId":"backup-export"}
+{"sessionId":"507331","location":"settings/page.tsx:backupAllData","message":"Backup download triggered","data":{"size":4556701},"timestamp":1782844091360,"hypothesisId":"backup-ui"}
