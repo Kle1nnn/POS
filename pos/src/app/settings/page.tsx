@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type Customer = {
@@ -30,7 +30,10 @@ export default function SettingsPage() {
   const [savingId, setSavingId] = useState<number | null>(null);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isBackingUp, setIsBackingUp] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const restoreInputRef = useRef<HTMLInputElement>(null);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -162,6 +165,110 @@ export default function SettingsPage() {
     }
   };
 
+  const backupAllData = async () => {
+    setIsBackingUp(true);
+    try {
+      const res = await fetch("/api/backup");
+      if (!res.ok) {
+        throw new Error("Backup failed");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      anchor.href = url;
+      anchor.download = `pos-backup-${stamp}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      // #region agent log
+      fetch("http://127.0.0.1:7480/ingest/9a20f3ee-1884-4721-a3e7-1497e20d6670", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "507331",
+        },
+        body: JSON.stringify({
+          sessionId: "507331",
+          location: "settings/page.tsx:backupAllData",
+          message: "Backup download triggered",
+          data: { size: blob.size },
+          timestamp: Date.now(),
+          hypothesisId: "backup-ui",
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      showToast("Backup downloaded");
+    } catch (error) {
+      console.error("Failed to backup data", error);
+      showToast("Backup failed");
+    } finally {
+      setIsBackingUp(false);
+    }
+  };
+
+  const restoreFromBackup = async (file: File) => {
+    if (
+      !confirm(
+        "Restore will replace ALL orders, contacts, and sales data with the backup file. Continue?",
+      )
+    ) {
+      return;
+    }
+
+    setIsRestoring(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as unknown;
+
+      const res = await fetch("/api/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        restored?: { orders: number; customers: number; orderItems: number };
+      };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Restore failed");
+      }
+
+      // #region agent log
+      fetch("http://127.0.0.1:7480/ingest/9a20f3ee-1884-4721-a3e7-1497e20d6670", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "507331",
+        },
+        body: JSON.stringify({
+          sessionId: "507331",
+          location: "settings/page.tsx:restoreFromBackup",
+          message: "Restore completed",
+          data: data.restored ?? {},
+          timestamp: Date.now(),
+          hypothesisId: "restore-ui",
+        }),
+      }).catch(() => {});
+      // #endregion
+
+      await loadCustomers();
+      showToast("Data restored successfully");
+    } catch (error) {
+      console.error("Failed to restore backup", error);
+      showToast("Restore failed");
+    } finally {
+      setIsRestoring(false);
+      if (restoreInputRef.current) {
+        restoreInputRef.current.value = "";
+      }
+    }
+  };
+
   const addCustomer = async () => {
     if (!newContact.name.trim()) {
       showToast("Name is required");
@@ -230,6 +337,42 @@ export default function SettingsPage() {
       </div>
 
       <div className="p-6 max-w-4xl">
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Data backup &amp; restore
+          </p>
+          <p className="text-sm text-gray-500 mb-3">
+            Download a full backup of orders, contacts, and sales data, or restore
+            from a previously saved backup file.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={backupAllData}
+              disabled={isBackingUp || isRestoring}
+              className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
+            >
+              {isBackingUp ? "Backing up..." : "Backup All Data"}
+            </button>
+            <button
+              onClick={() => restoreInputRef.current?.click()}
+              disabled={isBackingUp || isRestoring}
+              className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
+            >
+              {isRestoring ? "Restoring..." : "Restore from Backup"}
+            </button>
+            <input
+              ref={restoreInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void restoreFromBackup(file);
+              }}
+            />
+          </div>
+        </div>
+
         <p className="text-sm text-gray-500 mb-4">
           Add, edit, or remove saved customer contacts. Changes are only saved when
           you click Save Contact.

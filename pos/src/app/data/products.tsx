@@ -978,7 +978,7 @@ export const products: Product[] = [
   },
   {
     id: "92",
-    name: "BarBQ Platter Half",
+    name: "BarBQ Platter Half - (Tikka Chest,Bihari Boti 5pcs,Malai Boti 5pcs,Reshmi Kabab 2pcs, Gola Kabab 3pcs)",
     description: "Plater Half",
     basePrice: 2000,
     image: "",
@@ -986,7 +986,7 @@ export const products: Product[] = [
   },
   {
     id: "93",
-    name: "BarBQ Platter Full",
+    name: "BarBQ Platter Full - (Tikka Chest,Chicken Boti 5pcs,Malai Boti 5pcs,Green Boti 5pcs,Achari Boti 5pcs,Bihari Boti 5pcs,Reshmi Kabab 3pcs, Gola Kabab 2pcs,",
     description: "Platter Full",
     basePrice: 3500,
     image: "",
