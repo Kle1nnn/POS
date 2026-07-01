@@ -13,13 +13,14 @@ const tableReady: Promise<void> = (async () => {
         created_at timestamptz NOT NULL DEFAULT NOW()
       );
       CREATE INDEX IF NOT EXISTS idx_customers_name ON customers (LOWER(name));
+      CREATE INDEX IF NOT EXISTS idx_customers_phone ON customers (phone);
     `);
   } finally {
     client.release();
   }
 })();
 
-// GET /api/customers?q=ali  — search by name prefix
+// GET /api/customers?q=ali  — search by name or phone (substring, case-insensitive)
 export async function GET(req: NextRequest) {
   const q = req.nextUrl.searchParams.get("q")?.trim() ?? "";
   const all = req.nextUrl.searchParams.get("all") === "1";
@@ -38,9 +39,16 @@ export async function GET(req: NextRequest) {
           `SELECT id, name, phone
            FROM customers
            WHERE LOWER(name) LIKE LOWER($1)
-           ORDER BY name ASC
+              OR phone LIKE $1
+           ORDER BY
+             CASE
+               WHEN LOWER(name) LIKE LOWER($2) THEN 0
+               WHEN phone LIKE $2 THEN 1
+               ELSE 2
+             END,
+             name ASC
            LIMIT 8`,
-          [`${q}%`],
+          [`%${q}%`, `${q}%`],
         );
     return NextResponse.json({ customers: result.rows }, { status: 200 });
   } catch (err) {

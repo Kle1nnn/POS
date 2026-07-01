@@ -144,6 +144,17 @@ export default function Billing() {
     setShowSuggestions(true); fetchSuggestions(val);
   };
 
+  const handleCustomerPhoneChange = (val: string) => {
+    setCustomerPhone(val); setActiveIndex(-1); setCustomerSaved(false);
+    if (val.trim()) {
+      setShowSuggestions(true);
+      fetchSuggestions(val);
+    } else if (!customerName.trim()) {
+      setShowSuggestions(false);
+      setSuggestions([]);
+    }
+  };
+
   const selectSuggestion = (c: Customer) => {
     setCustomerName(c.name); setCustomerPhone(c.phone);
     setShowSuggestions(false); setActiveIndex(-1);
@@ -410,29 +421,27 @@ export default function Billing() {
 
                 {!isWalkIn && (
                   <div className="space-y-2">
-                    <div className="relative">
-                      <input ref={nameInputRef} type="text" value={customerName} onChange={(e) => handleCustomerNameChange(e.target.value)} onFocus={() => { if (customerName) setShowSuggestions(true); }} onKeyDown={handleNameKeyDown} placeholder="Customer name..." autoComplete="off"
-                        className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300" />
-                      {showSuggestions && suggestions.length > 0 && (
-                        <div ref={suggestionsRef} className="absolute top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-xl z-[1000] overflow-y-auto" style={{ maxHeight: "144px" }}>
-                          {suggestions.map((c, i) => (
-                            <button key={i} onMouseDown={() => selectSuggestion(c)} onMouseEnter={() => setActiveIndex(i)} style={{ height: "44px" }}
-                              className={`w-full text-left px-3 flex justify-between items-center border-b border-gray-50 last:border-0 shrink-0 ${i === activeIndex ? "bg-blue-50 text-blue-800" : "hover:bg-gray-50 text-gray-900"}`}>
-                              <span className="text-sm font-semibold truncate">{c.name}</span>
-                              <span className="text-xs text-gray-400 ml-2 shrink-0">{c.phone}</span>
-                            </button>
-                          ))}
-                        </div>
-                      )}
-                    </div>
+                    <input ref={nameInputRef} type="text" value={customerName} onChange={(e) => handleCustomerNameChange(e.target.value)} onFocus={() => { if (customerName || customerPhone) setShowSuggestions(true); }} onKeyDown={handleNameKeyDown} placeholder="Customer name..." autoComplete="off"
+                      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300" />
                     <div className="flex gap-2">
-                      <input type="text" value={customerPhone} onChange={(e) => setCustomerPhone(e.target.value)} placeholder="Phone number..."
+                      <input type="text" value={customerPhone} onChange={(e) => handleCustomerPhoneChange(e.target.value)} onFocus={() => { if (customerPhone || customerName) setShowSuggestions(true); }} placeholder="Phone number..."
                         className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300" />
                       <button onClick={saveCustomerIfNew} disabled={isSavingCustomer || customerSaved || !customerName.trim()}
                         className={`px-3 py-2.5 rounded-xl text-sm font-semibold border whitespace-nowrap transition-all active:scale-95 ${customerSaved ? "bg-green-50 text-green-700 border-green-200" : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"} disabled:opacity-50`}>
                         {isSavingCustomer ? "…" : customerSaved ? "✓ Saved" : "+ Save"}
                       </button>
                     </div>
+                    {showSuggestions && suggestions.length > 0 && (
+                      <div ref={suggestionsRef} className="bg-white border border-gray-200 rounded-xl shadow-xl overflow-y-auto" style={{ maxHeight: "144px" }}>
+                        {suggestions.map((c, i) => (
+                          <button key={i} onMouseDown={() => selectSuggestion(c)} onMouseEnter={() => setActiveIndex(i)} style={{ height: "44px" }}
+                            className={`w-full text-left px-3 flex justify-between items-center border-b border-gray-50 last:border-0 shrink-0 ${i === activeIndex ? "bg-blue-50 text-blue-800" : "hover:bg-gray-50 text-gray-900"}`}>
+                            <span className="text-sm font-semibold truncate">{c.name}</span>
+                            <span className="text-xs text-gray-400 ml-2 shrink-0">{c.phone}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
                     <button onClick={() => setCustomerDropdownOpen(false)} className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-[0.99]">Confirm</button>
                   </div>
                 )}

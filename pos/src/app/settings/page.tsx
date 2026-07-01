@@ -32,8 +32,11 @@ export default function SettingsPage() {
   const [isAdding, setIsAdding] = useState(false);
   const [isBackingUp, setIsBackingUp] = useState(false);
   const [isRestoring, setIsRestoring] = useState(false);
+  const [isBackingUpContacts, setIsBackingUpContacts] = useState(false);
+  const [isRestoringContacts, setIsRestoringContacts] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const restoreInputRef = useRef<HTMLInputElement>(null);
+  const contactsRestoreInputRef = useRef<HTMLInputElement>(null);
 
   const loadCustomers = async () => {
     setLoading(true);
@@ -182,30 +185,80 @@ export default function SettingsPage() {
       anchor.click();
       URL.revokeObjectURL(url);
 
-      // #region agent log
-      fetch("http://127.0.0.1:7480/ingest/9a20f3ee-1884-4721-a3e7-1497e20d6670", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "507331",
-        },
-        body: JSON.stringify({
-          sessionId: "507331",
-          location: "settings/page.tsx:backupAllData",
-          message: "Backup download triggered",
-          data: { size: blob.size },
-          timestamp: Date.now(),
-          hypothesisId: "backup-ui",
-        }),
-      }).catch(() => {});
-      // #endregion
-
       showToast("Backup downloaded");
     } catch (error) {
       console.error("Failed to backup data", error);
       showToast("Backup failed");
     } finally {
       setIsBackingUp(false);
+    }
+  };
+
+  const backupContacts = async () => {
+    setIsBackingUpContacts(true);
+    try {
+      const res = await fetch("/api/customers/backup");
+      if (!res.ok) {
+        throw new Error("Contacts backup failed");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      const stamp = new Date().toISOString().slice(0, 10);
+      anchor.href = url;
+      anchor.download = `pos-contacts-backup-${stamp}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+
+      showToast("Contacts backup downloaded");
+    } catch (error) {
+      console.error("Failed to backup contacts", error);
+      showToast("Contacts backup failed");
+    } finally {
+      setIsBackingUpContacts(false);
+    }
+  };
+
+  const restoreContactsFromBackup = async (file: File) => {
+    if (
+      !confirm(
+        "Restore will replace ALL saved contacts with the backup file. Orders and sales data will not be changed. Continue?",
+      )
+    ) {
+      return;
+    }
+
+    setIsRestoringContacts(true);
+    try {
+      const text = await file.text();
+      const payload = JSON.parse(text) as unknown;
+
+      const res = await fetch("/api/customers/backup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        restored?: { customers: number };
+      };
+
+      if (!res.ok) {
+        throw new Error(data.error ?? "Contacts restore failed");
+      }
+
+      await loadCustomers();
+      showToast("Contacts restored successfully");
+    } catch (error) {
+      console.error("Failed to restore contacts backup", error);
+      showToast("Contacts restore failed");
+    } finally {
+      setIsRestoringContacts(false);
+      if (contactsRestoreInputRef.current) {
+        contactsRestoreInputRef.current.value = "";
+      }
     }
   };
 
@@ -237,24 +290,6 @@ export default function SettingsPage() {
       if (!res.ok) {
         throw new Error(data.error ?? "Restore failed");
       }
-
-      // #region agent log
-      fetch("http://127.0.0.1:7480/ingest/9a20f3ee-1884-4721-a3e7-1497e20d6670", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "507331",
-        },
-        body: JSON.stringify({
-          sessionId: "507331",
-          location: "settings/page.tsx:restoreFromBackup",
-          message: "Restore completed",
-          data: data.restored ?? {},
-          timestamp: Date.now(),
-          hypothesisId: "restore-ui",
-        }),
-      }).catch(() => {});
-      // #endregion
 
       await loadCustomers();
       showToast("Data restored successfully");
@@ -339,7 +374,53 @@ export default function SettingsPage() {
       <div className="p-6 max-w-4xl">
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
           <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-            Data backup &amp; restore
+            Contacts backup &amp; restore
+          </p>
+          <p className="text-sm text-gray-500 mb-3">
+            Download or restore only your saved customer contacts. Orders and sales
+            data are not included.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <button
+              onClick={backupContacts}
+              disabled={
+                isBackingUpContacts ||
+                isRestoringContacts ||
+                isBackingUp ||
+                isRestoring
+              }
+              className="px-4 py-2 rounded-lg bg-green-700 text-white text-sm font-semibold hover:bg-green-800 disabled:opacity-50 transition-colors"
+            >
+              {isBackingUpContacts ? "Backing up..." : "Backup Contacts"}
+            </button>
+            <button
+              onClick={() => contactsRestoreInputRef.current?.click()}
+              disabled={
+                isBackingUpContacts ||
+                isRestoringContacts ||
+                isBackingUp ||
+                isRestoring
+              }
+              className="px-4 py-2 rounded-lg bg-green-50 text-green-900 text-sm font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors"
+            >
+              {isRestoringContacts ? "Restoring..." : "Restore Contacts"}
+            </button>
+            <input
+              ref={contactsRestoreInputRef}
+              type="file"
+              accept="application/json,.json"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) void restoreContactsFromBackup(file);
+              }}
+            />
+          </div>
+        </div>
+
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Full data backup &amp; restore
           </p>
           <p className="text-sm text-gray-500 mb-3">
             Download a full backup of orders, contacts, and sales data, or restore
@@ -348,14 +429,24 @@ export default function SettingsPage() {
           <div className="flex flex-wrap gap-2">
             <button
               onClick={backupAllData}
-              disabled={isBackingUp || isRestoring}
+              disabled={
+                isBackingUp ||
+                isRestoring ||
+                isBackingUpContacts ||
+                isRestoringContacts
+              }
               className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
             >
               {isBackingUp ? "Backing up..." : "Backup All Data"}
             </button>
             <button
               onClick={() => restoreInputRef.current?.click()}
-              disabled={isBackingUp || isRestoring}
+              disabled={
+                isBackingUp ||
+                isRestoring ||
+                isBackingUpContacts ||
+                isRestoringContacts
+              }
               className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
             >
               {isRestoring ? "Restoring..." : "Restore from Backup"}
@@ -419,7 +510,7 @@ export default function SettingsPage() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search by saved name or phone..."
+            placeholder="Search by name or phone number..."
             className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
         </div>
