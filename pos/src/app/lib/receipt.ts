@@ -110,10 +110,10 @@ export function buildReceiptHTML(
     ? ""
     : `
   <div class="payment-box">
-    <div class="payment-title">Online payment</div>
+    <div class="payment-title"><h3>Online payment<h/3></div>
+    <center><img src="Jz.jpg" alt="" style="width:100px; height:100px; object-fit:contain; margin-bottom:4px;"/>
     <div class="payment-grid">
-      <div>M. Saleh   EasyPaisa 03013149288</div>
-      <div>Atique Hyder  JazzCash 03009801494</div>
+      <div><h3>JazzCash 03213611550 M.Saleh<h/3></div>
     </div>
   </div>`;
 
