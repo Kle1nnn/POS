@@ -25,6 +25,18 @@ export function ensureCatalogTables(): Promise<void> {
             category    text NOT NULL,
             created_at  timestamptz NOT NULL DEFAULT NOW()
           );
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS is_deleted boolean NOT NULL DEFAULT false;
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS size_prices jsonb;
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS sizes jsonb;
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS has_extra_toppings boolean;
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS has_sauce_options boolean;
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT NOW();
           CREATE INDEX IF NOT EXISTS idx_custom_products_category
             ON custom_products (LOWER(category));
         `);

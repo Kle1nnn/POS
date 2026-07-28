@@ -45,7 +45,7 @@ export default function MenuGrid({
   const { addToCart } = useCart();
   const router = useRouter();
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
-  const [customProducts, setCustomProducts] = useState<Product[]>([]);
+  const [menuProducts, setMenuProducts] = useState<Product[]>(baseProducts);
   const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
 
   useEffect(() => {
@@ -53,7 +53,7 @@ export default function MenuGrid({
     (async () => {
       try {
         const [productsRes, categoriesRes] = await Promise.all([
-          fetch("/api/catalog/products"),
+          fetch("/api/catalog/products?menu=1"),
           fetch("/api/catalog/categories"),
         ]);
         if (!productsRes.ok || !categoriesRes.ok) return;
@@ -61,7 +61,7 @@ export default function MenuGrid({
         const categoriesData = await categoriesRes.json();
         if (cancelled) return;
 
-        setCustomProducts(
+        setMenuProducts(
           (productsData.products ?? []).map(
             (p: {
               id: string;
@@ -70,6 +70,10 @@ export default function MenuGrid({
               basePrice: number;
               image: string;
               category: string;
+              sizePrices?: Record<string, number> | null;
+              sizes?: string[] | null;
+              hasExtraToppings?: boolean | null;
+              hasSauceOptions?: boolean | null;
             }) => ({
               id: p.id,
               name: p.name,
@@ -77,6 +81,14 @@ export default function MenuGrid({
               basePrice: Number(p.basePrice),
               image: p.image || "deals.png",
               category: p.category,
+              ...(p.sizePrices ? { sizePrices: p.sizePrices } : {}),
+              ...(p.sizes ? { sizes: p.sizes } : {}),
+              ...(p.hasExtraToppings != null
+                ? { hasExtraToppings: !!p.hasExtraToppings }
+                : {}),
+              ...(p.hasSauceOptions != null
+                ? { hasSauceOptions: !!p.hasSauceOptions }
+                : {}),
             }),
           ),
         );
@@ -104,10 +116,7 @@ export default function MenuGrid({
     };
   }, []);
 
-  const allProducts = useMemo(
-    () => [...baseProducts, ...customProducts],
-    [customProducts],
-  );
+  const allProducts = menuProducts;
 
   const pizzaProducts = useMemo(
     () => allProducts.filter((p) => p.category === "Pizza"),

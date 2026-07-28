@@ -1,4 +1,3 @@
-"use client";
 import { Product } from "../components/Product";
 const pizzaRegularPrices = { S: 450, M: 800, L: 1200 };
 const pizzaSpecialPrices = { S: 550, M: 900, L: 1400 };

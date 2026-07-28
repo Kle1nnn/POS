@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
-type Tab = "contacts" | "catalog" | "reports";
+type Tab = "contacts" | "catalog" | "reports" | "backup";
 
 type Customer = {
   id: number;
@@ -24,13 +24,18 @@ type CustomCategory = {
   image: string;
 };
 
-type CustomProduct = {
+type CatalogProduct = {
   id: string;
   name: string;
   description: string;
   basePrice: number;
   image: string;
   category: string;
+  source?: "builtin" | "custom";
+  sizePrices?: Record<string, number> | null;
+  sizes?: string[] | null;
+  hasExtraToppings?: boolean | null;
+  hasSauceOptions?: boolean | null;
 };
 
 type DailyRow = {
@@ -47,11 +52,23 @@ type MonthlyRow = {
   totalItems: number;
 };
 
+type DateOrderRow = {
+  orderCode: string;
+  total: number;
+  customerName: string;
+  orderType: string;
+  tableNumber: number | null;
+  soldAt: string;
+  itemCount: number;
+};
+
 type ReportTotals = {
   totalRevenue: number;
   totalOrders: number;
   totalItems: number;
 };
+
+const DEFAULT_IMAGE = "deals.png";
 
 const BUILTIN_CATEGORIES = [
   "Pizza",
@@ -67,6 +84,27 @@ const BUILTIN_CATEGORIES = [
   "Toping",
   "Deals",
 ];
+
+function imageUrl(image: string) {
+  if (!image) return `/${DEFAULT_IMAGE}`;
+  if (image.startsWith("http") || image.startsWith("/")) return image;
+  return `/${image}`;
+}
+
+function isUploadedImage(image: string) {
+  return image.startsWith("uploads/");
+}
+
+async function deleteUploadedImage(image: string) {
+  if (!isUploadedImage(image)) return;
+  try {
+    await fetch(`/api/catalog/upload?image=${encodeURIComponent(image)}`, {
+      method: "DELETE",
+    });
+  } catch {
+    // ignore cleanup failures
+  }
+}
 
 function draftsFromCustomers(customers: Customer[]): Record<number, CustomerDraft> {
   return Object.fromEntries(
@@ -108,28 +146,45 @@ export default function SettingsPage() {
 
   // Catalog
   const [categories, setCategories] = useState<CustomCategory[]>([]);
-  const [customProducts, setCustomProducts] = useState<CustomProduct[]>([]);
+  const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
+  const [itemQuery, setItemQuery] = useState("");
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryEmoji, setNewCategoryEmoji] = useState("📦");
   const [isAddingCategory, setIsAddingCategory] = useState(false);
   const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
-  const [newItem, setNewItem] = useState({
+  const emptyItemForm = {
     name: "",
     category: "Burger",
     basePrice: "",
     description: "",
-  });
-  const [isAddingItem, setIsAddingItem] = useState(false);
+    image: DEFAULT_IMAGE,
+  };
+  const [newItem, setNewItem] = useState(emptyItemForm);
+  const [editingProductId, setEditingProductId] = useState<string | null>(null);
+  const [originalEditImage, setOriginalEditImage] = useState<string | null>(null);
+  const [isSavingItem, setIsSavingItem] = useState(false);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
+  const itemImageInputRef = useRef<HTMLInputElement>(null);
 
   // Reports
   const now = useMemo(() => new Date(), []);
-  const [reportMode, setReportMode] = useState<"daily" | "monthly">("daily");
+  const todayStr = useMemo(() => {
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, "0");
+    const d = String(now.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }, [now]);
+  const [reportMode, setReportMode] = useState<"date" | "daily" | "monthly">(
+    "date",
+  );
+  const [reportDate, setReportDate] = useState(todayStr);
   const [reportYear, setReportYear] = useState(now.getFullYear());
   const [reportMonth, setReportMonth] = useState(now.getMonth() + 1);
   const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
   const [monthlyRows, setMonthlyRows] = useState<MonthlyRow[]>([]);
+  const [dateOrders, setDateOrders] = useState<DateOrderRow[]>([]);
   const [reportTotals, setReportTotals] = useState<ReportTotals>({
     totalRevenue: 0,
     totalOrders: 0,
@@ -162,12 +217,12 @@ export default function SettingsPage() {
     try {
       const [catRes, prodRes] = await Promise.all([
         fetch("/api/catalog/categories"),
-        fetch("/api/catalog/products"),
+        fetch("/api/catalog/products?all=1"),
       ]);
       const catData = await catRes.json();
       const prodData = await prodRes.json();
       setCategories(catData.categories ?? []);
-      setCustomProducts(prodData.products ?? []);
+      setCatalogProducts(prodData.products ?? []);
     } catch (error) {
       console.error("Failed to load catalog", error);
       showToast("Failed to load catalog");
@@ -179,20 +234,30 @@ export default function SettingsPage() {
   const loadReports = useCallback(async () => {
     setReportsLoading(true);
     try {
-      const params = new URLSearchParams({
-        type: reportMode,
-        year: String(reportYear),
-      });
-      if (reportMode === "daily") params.set("month", String(reportMonth));
+      const params = new URLSearchParams({ type: reportMode });
+      if (reportMode === "date") {
+        params.set("date", reportDate);
+      } else {
+        params.set("year", String(reportYear));
+        if (reportMode === "daily") params.set("month", String(reportMonth));
+      }
 
       const res = await fetch(`/api/reports?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load reports");
 
-      if (reportMode === "daily") {
+      if (reportMode === "date") {
         setDailyRows(data.rows ?? []);
+        setDateOrders(data.orders ?? []);
+        setMonthlyRows([]);
+      } else if (reportMode === "daily") {
+        setDailyRows(data.rows ?? []);
+        setDateOrders([]);
+        setMonthlyRows([]);
       } else {
         setMonthlyRows(data.rows ?? []);
+        setDailyRows([]);
+        setDateOrders([]);
       }
       setReportTotals(
         data.totals ?? { totalRevenue: 0, totalOrders: 0, totalItems: 0 },
@@ -203,7 +268,7 @@ export default function SettingsPage() {
     } finally {
       setReportsLoading(false);
     }
-  }, [reportMode, reportYear, reportMonth]);
+  }, [reportMode, reportYear, reportMonth, reportDate]);
 
   useEffect(() => {
     loadCustomers();
@@ -228,8 +293,22 @@ export default function SettingsPage() {
 
   const categoryOptions = useMemo(() => {
     const customNames = categories.map((c) => c.name);
-    return Array.from(new Set([...BUILTIN_CATEGORIES, ...customNames]));
-  }, [categories]);
+    const fromProducts = catalogProducts.map((p) => p.category);
+    return Array.from(
+      new Set([...BUILTIN_CATEGORIES, ...customNames, ...fromProducts]),
+    ).sort((a, b) => a.localeCompare(b));
+  }, [categories, catalogProducts]);
+
+  const filteredCatalogProducts = useMemo(() => {
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return catalogProducts;
+    return catalogProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(q) ||
+        p.category.toLowerCase().includes(q) ||
+        (p.description || "").toLowerCase().includes(q),
+    );
+  }, [catalogProducts, itemQuery]);
 
   const updateDraft = (id: number, field: "name" | "phone", value: string) => {
     setDrafts((prev) => ({
@@ -531,7 +610,73 @@ export default function SettingsPage() {
     }
   };
 
-  const addItem = async () => {
+  const resetItemForm = () => {
+    setNewItem(emptyItemForm);
+    setEditingProductId(null);
+    setOriginalEditImage(null);
+    if (itemImageInputRef.current) itemImageInputRef.current.value = "";
+  };
+
+  const uploadItemImage = async (file: File) => {
+    setIsUploadingImage(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/catalog/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+
+      const previous = newItem.image;
+      setNewItem((prev) => ({ ...prev, image: data.image as string }));
+
+      // Clean up previous uploaded image that is not the original being edited
+      if (
+        isUploadedImage(previous) &&
+        previous !== originalEditImage &&
+        previous !== data.image
+      ) {
+        await deleteUploadedImage(previous);
+      }
+
+      showToast("Picture uploaded");
+    } catch (error) {
+      console.error("Failed to upload image", error);
+      showToast(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setIsUploadingImage(false);
+      if (itemImageInputRef.current) itemImageInputRef.current.value = "";
+    }
+  };
+
+  const removeItemPicture = async () => {
+    const current = newItem.image;
+    if (current === DEFAULT_IMAGE) return;
+
+    setNewItem((prev) => ({ ...prev, image: DEFAULT_IMAGE }));
+
+    if (isUploadedImage(current) && current !== originalEditImage) {
+      await deleteUploadedImage(current);
+    }
+    showToast("Picture removed");
+  };
+
+  const startEditProduct = (product: CatalogProduct) => {
+    setEditingProductId(product.id);
+    setOriginalEditImage(product.image || DEFAULT_IMAGE);
+    setNewItem({
+      name: product.name,
+      category: product.category,
+      basePrice: String(product.basePrice),
+      description: product.description || "",
+      image: product.image || DEFAULT_IMAGE,
+    });
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const saveItem = async () => {
     if (!newItem.name.trim()) {
       showToast("Item name is required");
       return;
@@ -546,51 +691,90 @@ export default function SettingsPage() {
       return;
     }
 
-    setIsAddingItem(true);
+    setIsSavingItem(true);
     try {
+      const existing = editingProductId
+        ? catalogProducts.find((p) => p.id === editingProductId)
+        : null;
+
+      const payload = {
+        name: newItem.name.trim(),
+        category: newItem.category.trim(),
+        basePrice: price,
+        description: newItem.description.trim() || newItem.name.trim(),
+        image: newItem.image.trim() || DEFAULT_IMAGE,
+        sizePrices: existing?.sizePrices ?? null,
+        sizes: existing?.sizes ?? null,
+        hasExtraToppings: existing?.hasExtraToppings ?? null,
+        hasSauceOptions: existing?.hasSauceOptions ?? null,
+      };
+
       const res = await fetch("/api/catalog/products", {
-        method: "POST",
+        method: editingProductId ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newItem.name.trim(),
-          category: newItem.category.trim(),
-          basePrice: price,
-          description: newItem.description.trim() || newItem.name.trim(),
-        }),
+        body: JSON.stringify(
+          editingProductId ? { id: editingProductId, ...payload } : payload,
+        ),
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error ?? "Failed to add item");
+      if (!res.ok) throw new Error(data.error ?? "Failed to save item");
 
-      setCustomProducts((prev) => [data.product, ...prev]);
-      setNewItem((prev) => ({
-        ...prev,
-        name: "",
-        basePrice: "",
-        description: "",
-      }));
-      showToast("Item added");
+      if (editingProductId) {
+        setCatalogProducts((prev) =>
+          prev.map((p) =>
+            p.id === editingProductId
+              ? { ...data.product, source: data.product.source ?? p.source }
+              : p,
+          ),
+        );
+        if (
+          originalEditImage &&
+          isUploadedImage(originalEditImage) &&
+          originalEditImage !== data.product.image
+        ) {
+          await deleteUploadedImage(originalEditImage);
+        }
+        showToast("Item updated");
+      } else {
+        setCatalogProducts((prev) => [
+          { ...data.product, source: "custom" },
+          ...prev,
+        ]);
+        showToast("Item added");
+      }
+      resetItemForm();
     } catch (error) {
-      console.error("Failed to add item", error);
-      showToast(error instanceof Error ? error.message : "Add item failed");
+      console.error("Failed to save item", error);
+      showToast(error instanceof Error ? error.message : "Save item failed");
     } finally {
-      setIsAddingItem(false);
+      setIsSavingItem(false);
     }
   };
 
-  const deleteProduct = async (product: CustomProduct) => {
-    if (!confirm(`Delete item "${product.name}"?`)) return;
+  const deleteProduct = async (product: CatalogProduct) => {
+    const label =
+      product.source === "builtin"
+        ? `Remove "${product.name}" from the menu?`
+        : `Delete item "${product.name}"?`;
+    if (!confirm(label)) return;
     setDeletingProductId(product.id);
     try {
       const res = await fetch(
         `/api/catalog/products?id=${encodeURIComponent(product.id)}`,
         { method: "DELETE" },
       );
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error ?? "Failed to delete item");
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to delete item");
+
+      setCatalogProducts((prev) => prev.filter((p) => p.id !== product.id));
+      if (
+        product.source === "custom" &&
+        isUploadedImage(data.image || product.image)
+      ) {
+        await deleteUploadedImage(data.image || product.image);
       }
-      setCustomProducts((prev) => prev.filter((p) => p.id !== product.id));
-      showToast("Item deleted");
+      if (editingProductId === product.id) resetItemForm();
+      showToast(product.source === "builtin" ? "Item removed from menu" : "Item deleted");
     } catch (error) {
       console.error("Failed to delete item", error);
       showToast("Delete item failed");
@@ -637,6 +821,7 @@ export default function SettingsPage() {
               { id: "contacts", label: "Contacts" },
               { id: "catalog", label: "Add Item / Category" },
               { id: "reports", label: "Reports" },
+              { id: "backup", label: "Full Backup" },
             ] as const
           ).map((t) => (
             <button
@@ -698,52 +883,6 @@ export default function SettingsPage() {
                   onChange={(e) => {
                     const file = e.target.files?.[0];
                     if (file) void restoreContactsFromBackup(file);
-                  }}
-                />
-              </div>
-            </div>
-
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Full data backup &amp; restore
-              </p>
-              <p className="text-sm text-gray-500 mb-3">
-                Download a full backup of orders, contacts, and sales data, or
-                restore from a previously saved backup file.
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={backupAllData}
-                  disabled={
-                    isBackingUp ||
-                    isRestoring ||
-                    isBackingUpContacts ||
-                    isRestoringContacts
-                  }
-                  className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
-                >
-                  {isBackingUp ? "Backing up..." : "Backup All Data"}
-                </button>
-                <button
-                  onClick={() => restoreInputRef.current?.click()}
-                  disabled={
-                    isBackingUp ||
-                    isRestoring ||
-                    isBackingUpContacts ||
-                    isRestoringContacts
-                  }
-                  className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
-                >
-                  {isRestoring ? "Restoring..." : "Restore from Backup"}
-                </button>
-                <input
-                  ref={restoreInputRef}
-                  type="file"
-                  accept="application/json,.json"
-                  className="hidden"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0];
-                    if (file) void restoreFromBackup(file);
                   }}
                 />
               </div>
@@ -912,12 +1051,55 @@ export default function SettingsPage() {
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Add item
+                {editingProductId ? "Edit item" : "Add item"}
               </p>
               <p className="text-sm text-gray-500 mb-3">
-                Add a new menu item under an existing or custom category.
+                {editingProductId
+                  ? "Update item details, price, category, or picture."
+                  : "Add a new menu item under an existing or custom category."}
               </p>
               <div className="grid grid-cols-12 gap-3">
+                <div className="col-span-12 flex flex-wrap items-center gap-3 mb-1">
+                  <img
+                    src={imageUrl(newItem.image)}
+                    alt="Item"
+                    className="w-16 h-16 rounded-xl object-cover border border-gray-200 bg-gray-50"
+                  />
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => itemImageInputRef.current?.click()}
+                      disabled={isUploadingImage || isSavingItem}
+                      className="px-3 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      {isUploadingImage
+                        ? "Uploading..."
+                        : newItem.image === DEFAULT_IMAGE
+                          ? "Add Picture"
+                          : "Change Picture"}
+                    </button>
+                    {newItem.image !== DEFAULT_IMAGE && (
+                      <button
+                        type="button"
+                        onClick={() => void removeItemPicture()}
+                        disabled={isUploadingImage || isSavingItem}
+                        className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                      >
+                        Delete Picture
+                      </button>
+                    )}
+                  </div>
+                  <input
+                    ref={itemImageInputRef}
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) void uploadItemImage(file);
+                    }}
+                  />
+                </div>
                 <div className="col-span-4">
                   <input
                     value={newItem.name}
@@ -962,13 +1144,26 @@ export default function SettingsPage() {
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
-                <div className="col-span-2 flex justify-end">
+                <div className="col-span-2 flex justify-end gap-2">
+                  {editingProductId && (
+                    <button
+                      onClick={resetItemForm}
+                      disabled={isSavingItem}
+                      className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 disabled:opacity-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  )}
                   <button
-                    onClick={addItem}
-                    disabled={isAddingItem}
+                    onClick={saveItem}
+                    disabled={isSavingItem || isUploadingImage}
                     className="px-3 py-2 rounded-lg bg-green-50 text-green-900 text-sm font-semibold hover:bg-green-100 disabled:opacity-50 transition-colors"
                   >
-                    {isAddingItem ? "Saving..." : "Add Item"}
+                    {isSavingItem
+                      ? "Saving..."
+                      : editingProductId
+                        ? "Update"
+                        : "Add Item"}
                   </button>
                 </div>
                 <div className="col-span-12">
@@ -1026,23 +1221,41 @@ export default function SettingsPage() {
             </div>
 
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="px-4 py-3 border-b border-gray-100">
-                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                  Custom items
-                </p>
+              <div className="px-4 py-3 border-b border-gray-100 space-y-3">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                    All menu items
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    {filteredCatalogProducts.length} / {catalogProducts.length}
+                  </p>
+                </div>
+                <input
+                  value={itemQuery}
+                  onChange={(e) => setItemQuery(e.target.value)}
+                  placeholder="Search all items by name or category..."
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
               </div>
               {catalogLoading ? (
                 <div className="p-6 text-sm text-gray-500">Loading...</div>
-              ) : customProducts.length === 0 ? (
-                <div className="p-6 text-sm text-gray-500">No custom items yet.</div>
+              ) : filteredCatalogProducts.length === 0 ? (
+                <div className="p-6 text-sm text-gray-500">No items found.</div>
               ) : (
-                <div className="divide-y divide-gray-100">
-                  {customProducts.map((product) => (
+                <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
+                  {filteredCatalogProducts.map((product) => (
                     <div
                       key={product.id}
                       className="px-4 py-3 grid grid-cols-12 gap-3 items-center"
                     >
-                      <div className="col-span-5 min-w-0">
+                      <div className="col-span-1">
+                        <img
+                          src={imageUrl(product.image)}
+                          alt={product.name}
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-gray-50"
+                        />
+                      </div>
+                      <div className="col-span-4 min-w-0">
                         <p className="text-sm font-semibold text-gray-900 truncate">
                           {product.name}
                         </p>
@@ -1050,13 +1263,25 @@ export default function SettingsPage() {
                           {product.description}
                         </p>
                       </div>
-                      <div className="col-span-3 text-sm text-gray-600">
-                        {product.category}
+                      <div className="col-span-2 text-sm text-gray-600">
+                        <div>{product.category}</div>
+                        <div className="text-[10px] uppercase tracking-wide text-gray-400">
+                          {product.source === "custom" ? "Custom" : "Menu"}
+                        </div>
                       </div>
                       <div className="col-span-2 text-sm font-semibold text-gray-900">
-                        {money(product.basePrice)}
+                        {product.sizePrices
+                          ? "Sizes"
+                          : money(product.basePrice)}
                       </div>
-                      <div className="col-span-2 flex justify-end">
+                      <div className="col-span-3 flex justify-end gap-2">
+                        <button
+                          onClick={() => startEditProduct(product)}
+                          disabled={deletingProductId === product.id}
+                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          Edit
+                        </button>
                         <button
                           onClick={() => deleteProduct(product)}
                           disabled={deletingProductId === product.id}
@@ -1073,6 +1298,55 @@ export default function SettingsPage() {
           </>
         )}
 
+        {tab === "backup" && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Full data backup &amp; restore
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              Download a full backup of orders, contacts, and sales data, or
+              restore from a previously saved backup file. This is separate from
+              contacts-only backup.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={backupAllData}
+                disabled={
+                  isBackingUp ||
+                  isRestoring ||
+                  isBackingUpContacts ||
+                  isRestoringContacts
+                }
+                className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
+              >
+                {isBackingUp ? "Backing up..." : "Backup All Data"}
+              </button>
+              <button
+                onClick={() => restoreInputRef.current?.click()}
+                disabled={
+                  isBackingUp ||
+                  isRestoring ||
+                  isBackingUpContacts ||
+                  isRestoringContacts
+                }
+                className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
+              >
+                {isRestoring ? "Restoring..." : "Restore from Backup"}
+              </button>
+              <input
+                ref={restoreInputRef}
+                type="file"
+                accept="application/json,.json"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (file) void restoreFromBackup(file);
+                }}
+              />
+            </div>
+          </div>
+        )}
+
         {tab === "reports" && (
           <>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
@@ -1080,6 +1354,16 @@ export default function SettingsPage() {
                 Sales reports
               </p>
               <div className="flex flex-wrap gap-2 mb-4">
+                <button
+                  onClick={() => setReportMode("date")}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    reportMode === "date"
+                      ? "bg-[#1a3a5c] text-white"
+                      : "bg-gray-50 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  Select Date
+                </button>
                 <button
                   onClick={() => setReportMode("daily")}
                   className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
@@ -1103,46 +1387,69 @@ export default function SettingsPage() {
               </div>
 
               <div className="flex flex-wrap items-end gap-3">
-                <div>
-                  <label className="block text-xs text-gray-500 mb-1">Year</label>
-                  <select
-                    value={reportYear}
-                    onChange={(e) => setReportYear(Number(e.target.value))}
-                    className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
-                  >
-                    {yearOptions.map((y) => (
-                      <option key={y} value={y}>
-                        {y}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                {reportMode === "daily" && (
+                {reportMode === "date" ? (
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">
-                      Month
+                      Date
                     </label>
-                    <select
-                      value={reportMonth}
-                      onChange={(e) => setReportMonth(Number(e.target.value))}
+                    <input
+                      type="date"
+                      value={reportDate}
+                      onChange={(e) => setReportDate(e.target.value)}
                       className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
-                    >
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                        <option key={m} value={m}>
-                          {new Date(2000, m - 1, 1).toLocaleString(undefined, {
-                            month: "long",
-                          })}
-                        </option>
-                      ))}
-                    </select>
+                    />
                   </div>
+                ) : (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Year
+                      </label>
+                      <select
+                        value={reportYear}
+                        onChange={(e) => setReportYear(Number(e.target.value))}
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {reportMode === "daily" && (
+                      <div>
+                        <label className="block text-xs text-gray-500 mb-1">
+                          Month
+                        </label>
+                        <select
+                          value={reportMonth}
+                          onChange={(e) =>
+                            setReportMonth(Number(e.target.value))
+                          }
+                          className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                        >
+                          {Array.from({ length: 12 }, (_, i) => i + 1).map(
+                            (m) => (
+                              <option key={m} value={m}>
+                                {new Date(2000, m - 1, 1).toLocaleString(
+                                  undefined,
+                                  { month: "long" },
+                                )}
+                              </option>
+                            ),
+                          )}
+                        </select>
+                      </div>
+                    )}
+                  </>
                 )}
                 <button
                   onClick={() => void loadReports()}
                   disabled={reportsLoading}
                   className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
                 >
-                  {reportsLoading ? "Loading..." : "Refresh"}
+                  {reportsLoading ? "Loading..." : "View Report"}
                 </button>
               </div>
             </div>
@@ -1168,36 +1475,38 @@ export default function SettingsPage() {
               </div>
             </div>
 
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
               <div className="px-4 py-3 border-b border-gray-100">
                 <p className="text-sm font-semibold text-gray-900">
-                  {reportMode === "daily"
-                    ? `Day-by-day · ${monthLabel(reportYear, reportMonth)}`
-                    : `Monthly · ${reportYear}`}
+                  {reportMode === "date"
+                    ? `Report for ${reportDate}`
+                    : reportMode === "daily"
+                      ? `Day-by-day · ${monthLabel(reportYear, reportMonth)}`
+                      : `Monthly · ${reportYear}`}
                 </p>
               </div>
               {reportsLoading ? (
                 <div className="p-8 text-sm text-gray-500">Loading report...</div>
-              ) : reportMode === "daily" ? (
-                dailyRows.length === 0 ? (
+              ) : reportMode === "monthly" ? (
+                monthlyRows.length === 0 ? (
                   <div className="p-8 text-sm text-gray-500">
-                    No daily sales for this month.
+                    No monthly sales for this year.
                   </div>
                 ) : (
                   <div className="divide-y divide-gray-100">
                     <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
-                      <div className="col-span-4">Date</div>
+                      <div className="col-span-4">Month</div>
                       <div className="col-span-3 text-right">Revenue</div>
                       <div className="col-span-2 text-right">Orders</div>
                       <div className="col-span-3 text-right">Items</div>
                     </div>
-                    {dailyRows.map((row) => (
+                    {monthlyRows.map((row) => (
                       <div
-                        key={row.saleDate}
+                        key={row.period}
                         className="px-4 py-3 grid grid-cols-12 gap-2 text-sm"
                       >
                         <div className="col-span-4 font-medium text-gray-900">
-                          {row.saleDate}
+                          {row.period}
                         </div>
                         <div className="col-span-3 text-right font-semibold">
                           {money(row.totalRevenue)}
@@ -1212,25 +1521,27 @@ export default function SettingsPage() {
                     ))}
                   </div>
                 )
-              ) : monthlyRows.length === 0 ? (
+              ) : dailyRows.length === 0 ? (
                 <div className="p-8 text-sm text-gray-500">
-                  No monthly sales for this year.
+                  {reportMode === "date"
+                    ? "No sales for this date."
+                    : "No daily sales for this month."}
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
                   <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
-                    <div className="col-span-4">Month</div>
+                    <div className="col-span-4">Date</div>
                     <div className="col-span-3 text-right">Revenue</div>
                     <div className="col-span-2 text-right">Orders</div>
                     <div className="col-span-3 text-right">Items</div>
                   </div>
-                  {monthlyRows.map((row) => (
+                  {dailyRows.map((row) => (
                     <div
-                      key={row.period}
+                      key={row.saleDate}
                       className="px-4 py-3 grid grid-cols-12 gap-2 text-sm"
                     >
                       <div className="col-span-4 font-medium text-gray-900">
-                        {row.period}
+                        {row.saleDate}
                       </div>
                       <div className="col-span-3 text-right font-semibold">
                         {money(row.totalRevenue)}
@@ -1246,6 +1557,58 @@ export default function SettingsPage() {
                 </div>
               )}
             </div>
+
+            {reportMode === "date" && (
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-4 py-3 border-b border-gray-100">
+                  <p className="text-sm font-semibold text-gray-900">
+                    Orders on {reportDate}
+                  </p>
+                </div>
+                {reportsLoading ? (
+                  <div className="p-8 text-sm text-gray-500">Loading orders...</div>
+                ) : dateOrders.length === 0 ? (
+                  <div className="p-8 text-sm text-gray-500">
+                    No checked-out orders for this date.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
+                      <div className="col-span-3">Order</div>
+                      <div className="col-span-3">Customer</div>
+                      <div className="col-span-2">Type</div>
+                      <div className="col-span-2 text-right">Items</div>
+                      <div className="col-span-2 text-right">Total</div>
+                    </div>
+                    {dateOrders.map((order) => (
+                      <div
+                        key={order.orderCode}
+                        className="px-4 py-3 grid grid-cols-12 gap-2 text-sm"
+                      >
+                        <div className="col-span-3 font-medium text-gray-900">
+                          {order.orderCode}
+                        </div>
+                        <div className="col-span-3 text-gray-700 truncate">
+                          {order.customerName}
+                        </div>
+                        <div className="col-span-2 text-gray-700">
+                          {order.orderType}
+                          {order.tableNumber != null
+                            ? ` #${order.tableNumber}`
+                            : ""}
+                        </div>
+                        <div className="col-span-2 text-right text-gray-700">
+                          {order.itemCount}
+                        </div>
+                        <div className="col-span-2 text-right font-semibold">
+                          {money(order.total)}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </>
         )}
       </div>
