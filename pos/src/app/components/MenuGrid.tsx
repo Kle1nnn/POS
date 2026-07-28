@@ -1,10 +1,11 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart, makeCartKey } from "../context/CartContext";
 import { products } from "../data/products";
+import type { Product } from "./Product";
 
-const CATEGORY_TILES = [
+const BUILTIN_CATEGORY_TILES = [
   { key: "Burger", label: "Burgers", emoji: "🍔", image: "burger.png" },
   { key: "Broast", label: "Broast", emoji: "🍗", image: "broast.png" },
   { key: "Rolls", label: "Rolls", emoji: "🌯", image: "roll.png" },
@@ -18,12 +19,18 @@ const CATEGORY_TILES = [
   { key: "Deals", label: "Deals", emoji: "🧂", image: "deals.png" },
 ];
 
-const allProducts = products.map((p) =>
+const baseProducts: Product[] = products.map((p) =>
   p.category === "Rolls" && p.image === "shawarma.png"
     ? { ...p, category: "Shawarma" }
     : p,
 );
-const pizzaProducts = allProducts.filter((p) => p.category === "Pizza");
+
+type CategoryTile = {
+  key: string;
+  label: string;
+  emoji: string;
+  image: string;
+};
 
 type Selection =
   | { mode: "none" }
@@ -38,6 +45,84 @@ export default function MenuGrid({
   const { addToCart } = useCart();
   const router = useRouter();
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
+  const [customProducts, setCustomProducts] = useState<Product[]>([]);
+  const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [productsRes, categoriesRes] = await Promise.all([
+          fetch("/api/catalog/products"),
+          fetch("/api/catalog/categories"),
+        ]);
+        if (!productsRes.ok || !categoriesRes.ok) return;
+        const productsData = await productsRes.json();
+        const categoriesData = await categoriesRes.json();
+        if (cancelled) return;
+
+        setCustomProducts(
+          (productsData.products ?? []).map(
+            (p: {
+              id: string;
+              name: string;
+              description: string;
+              basePrice: number;
+              image: string;
+              category: string;
+            }) => ({
+              id: p.id,
+              name: p.name,
+              description: p.description || p.name,
+              basePrice: Number(p.basePrice),
+              image: p.image || "deals.png",
+              category: p.category,
+            }),
+          ),
+        );
+        setCustomCategories(
+          (categoriesData.categories ?? []).map(
+            (c: {
+              name: string;
+              label: string;
+              emoji: string;
+              image: string;
+            }) => ({
+              key: c.name,
+              label: c.label || c.name,
+              emoji: c.emoji || "📦",
+              image: c.image || "deals.png",
+            }),
+          ),
+        );
+      } catch (error) {
+        console.error("Failed to load custom catalog", error);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const allProducts = useMemo(
+    () => [...baseProducts, ...customProducts],
+    [customProducts],
+  );
+
+  const pizzaProducts = useMemo(
+    () => allProducts.filter((p) => p.category === "Pizza"),
+    [allProducts],
+  );
+
+  const categoryTiles = useMemo(() => {
+    const builtinKeys = new Set(
+      BUILTIN_CATEGORY_TILES.map((c) => c.key.toLowerCase()),
+    );
+    const extras = customCategories.filter(
+      (c) => !builtinKeys.has(c.key.toLowerCase()),
+    );
+    return [...BUILTIN_CATEGORY_TILES, ...extras];
+  }, [customCategories]);
 
   const togglePizza = (id: string) =>
     setSelection((p) =>
@@ -174,7 +259,7 @@ export default function MenuGrid({
           />
         );
       })}
-      {CATEGORY_TILES.map((cat) => {
+      {categoryTiles.map((cat) => {
         const isSelected =
           selection.mode === "category" && selection.category === cat.key;
         return (

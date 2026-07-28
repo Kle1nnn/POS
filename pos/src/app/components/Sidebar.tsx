@@ -12,6 +12,7 @@ export default function Sidebar() {
     { icon: <House color="black" />, label: "Menu", href: "/" },
     { icon: <ShoppingCart color="black" />, label: "Orders", href: "/Orders" },
     { icon: <Clock color="black" />, label: "History", href: "/History" },
+    { icon: <Settings color="black" />, label: "Settings", href: "/settings" },
   ];
 
   return (

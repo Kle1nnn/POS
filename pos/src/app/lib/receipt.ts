@@ -84,10 +84,10 @@ export function buildReceiptHTML(
     <hr style="border: none; border-top: 1.5px solid #000; margin: 7px 0 4px;" />`
     : `
     <img src="logo.png" alt="" style="width:150px; height:150px; object-fit:contain; margin-bottom:4px;"/>
-    <div class="store-name">Tasty Bites Pizza & Fast Food</div>
+    <div class="store-name">Tasty Bites Pizza, BarBQ & Fast Food</div>
     <div class="store-sub">Kamran Centre, Tharushah</div>
     <div class="store-sub">03213611550 · 03063096900</div>
-    ${isPaid ? `<hr style="border: none; border-top: 1px solid #000; margin: 7px 0 4px;" /><div class="paid-stamp">✓ PAID</div>` : ""}
+    ${isPaid ? `<hr style="border: none; border-top: 1px solid #000; margin: 7px 0 4px;" /><div class="paid-stamp">✓ BILL PAID</div>` : ""}
     <hr style="border: none; border-top: 1.5px solid #000; margin: 7px 0 4px;" />`;
 
   const itemHeader = isKitchen

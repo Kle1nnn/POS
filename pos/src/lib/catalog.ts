@@ -1,0 +1,37 @@
+import { pgPool } from "./db";
+
+let ready: Promise<void> | null = null;
+
+export function ensureCatalogTables(): Promise<void> {
+  if (!ready) {
+    ready = (async () => {
+      const client = await pgPool.connect();
+      try {
+        await client.query(`
+          CREATE TABLE IF NOT EXISTS custom_categories (
+            id         bigserial PRIMARY KEY,
+            name       text NOT NULL UNIQUE,
+            label      text NOT NULL,
+            emoji      text NOT NULL DEFAULT '📦',
+            image      text NOT NULL DEFAULT 'deals.png',
+            created_at timestamptz NOT NULL DEFAULT NOW()
+          );
+          CREATE TABLE IF NOT EXISTS custom_products (
+            id          text PRIMARY KEY,
+            name        text NOT NULL,
+            description text NOT NULL DEFAULT '',
+            base_price  numeric(12,2) NOT NULL DEFAULT 0,
+            image       text NOT NULL DEFAULT 'deals.png',
+            category    text NOT NULL,
+            created_at  timestamptz NOT NULL DEFAULT NOW()
+          );
+          CREATE INDEX IF NOT EXISTS idx_custom_products_category
+            ON custom_products (LOWER(category));
+        `);
+      } finally {
+        client.release();
+      }
+    })();
+  }
+  return ready;
+}
