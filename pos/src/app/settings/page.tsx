@@ -181,7 +181,13 @@ export default function SettingsPage() {
   const [isSavingCategory, setIsSavingCategory] = useState(false);
   const [isUploadingCategoryImage, setIsUploadingCategoryImage] = useState(false);
   const [deletingCategoryId, setDeletingCategoryId] = useState<number | null>(null);
+  const [changingPictureCategoryId, setChangingPictureCategoryId] = useState<
+    number | string | null
+  >(null);
   const categoryImageInputRef = useRef<HTMLInputElement>(null);
+  const categoryRowImageInputRef = useRef<HTMLInputElement>(null);
+  const categoryPictureTargetRef = useRef<CustomCategory | null>(null);
+  const categoryFormRef = useRef<HTMLDivElement>(null);
   const emptyItemForm = {
     name: "",
     category: "Burger",
@@ -676,6 +682,9 @@ export default function SettingsPage() {
     setNewCategoryImage(category.image || DEFAULT_IMAGE);
     setOriginalCategoryImage(category.image || DEFAULT_IMAGE);
     if (categoryImageInputRef.current) categoryImageInputRef.current.value = "";
+    window.setTimeout(() => {
+      categoryFormRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 50);
   };
 
   const uploadCategoryImage = async (file: File) => {
@@ -711,6 +720,63 @@ export default function SettingsPage() {
     }
   };
 
+  const changeCategoryPicture = async (
+    category: CustomCategory,
+    file: File,
+  ) => {
+    setChangingPictureCategoryId(category.id);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const uploadRes = await fetch("/api/catalog/upload", {
+        method: "POST",
+        body: form,
+      });
+      const uploadData = await uploadRes.json().catch(() => ({}));
+      if (!uploadRes.ok) {
+        throw new Error(uploadData.error ?? "Upload failed");
+      }
+
+      const newImage = uploadData.image as string;
+      const res = await fetch("/api/catalog/categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: category.id,
+          image: newImage,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to update picture");
+
+      setCategories((prev) =>
+        prev.map((c) => (c.id === category.id ? data.category : c)),
+      );
+      if (editingCategoryId === category.id) {
+        setNewCategoryImage(newImage);
+        setOriginalCategoryImage(newImage);
+      }
+      if (
+        isUploadedImage(category.image) &&
+        category.image !== newImage
+      ) {
+        await deleteUploadedImage(category.image);
+      }
+      showToast("Category picture updated");
+    } catch (error) {
+      console.error("Failed to change category picture", error);
+      showToast(
+        error instanceof Error ? error.message : "Change picture failed",
+      );
+    } finally {
+      setChangingPictureCategoryId(null);
+      if (categoryRowImageInputRef.current) {
+        categoryRowImageInputRef.current.value = "";
+      }
+      categoryPictureTargetRef.current = null;
+    }
+  };
+
   const removeCategoryPicture = async () => {
     const current = newCategoryImage;
     setNewCategoryImage(DEFAULT_IMAGE);
@@ -721,6 +787,40 @@ export default function SettingsPage() {
       await deleteUploadedImage(current);
     }
     if (categoryImageInputRef.current) categoryImageInputRef.current.value = "";
+  };
+
+  const clearCategoryPicture = async (category: CustomCategory) => {
+    if (category.image === DEFAULT_IMAGE) return;
+    setChangingPictureCategoryId(category.id);
+    try {
+      const res = await fetch("/api/catalog/categories", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: category.id,
+          image: DEFAULT_IMAGE,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to remove picture");
+
+      setCategories((prev) =>
+        prev.map((c) => (c.id === category.id ? data.category : c)),
+      );
+      if (editingCategoryId === category.id) {
+        setNewCategoryImage(DEFAULT_IMAGE);
+        setOriginalCategoryImage(DEFAULT_IMAGE);
+      }
+      if (isUploadedImage(category.image)) {
+        await deleteUploadedImage(category.image);
+      }
+      showToast("Category picture removed");
+    } catch (error) {
+      console.error("Failed to remove category picture", error);
+      showToast("Remove picture failed");
+    } finally {
+      setChangingPictureCategoryId(null);
+    }
   };
 
   const saveCategory = async () => {
@@ -1326,7 +1426,10 @@ export default function SettingsPage() {
 
         {tab === "catalog" && (
           <>
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+            <div
+              ref={categoryFormRef}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4"
+            >
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 {editingCategoryId ? "Edit category" : "Add category"}
               </p>
@@ -1568,45 +1671,98 @@ export default function SettingsPage() {
                 <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
                   Custom categories
                 </p>
+                <p className="text-xs text-gray-400 mt-1">
+                  Edit name, change picture, or delete each category.
+                </p>
               </div>
+              <input
+                ref={categoryRowImageInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp,image/gif"
+                className="hidden"
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  const target = categoryPictureTargetRef.current;
+                  if (file && target) void changeCategoryPicture(target, file);
+                }}
+              />
               {catalogLoading ? (
                 <div className="p-6 text-sm text-gray-500">Loading...</div>
               ) : categories.length === 0 ? (
                 <div className="p-6 text-sm text-gray-500">
-                  No custom categories yet.
+                  No custom categories yet. Add one above.
                 </div>
               ) : (
                 <div className="divide-y divide-gray-100">
                   {categories.map((category) => (
                     <div
                       key={category.id}
-                      className="px-4 py-3 flex items-center justify-between gap-3"
+                      className="px-4 py-3 flex flex-wrap items-center justify-between gap-3"
                     >
                       <div className="flex items-center gap-3 min-w-0">
                         <img
                           src={imageUrl(category.image)}
                           alt={category.name}
-                          className="w-10 h-10 rounded-lg object-cover border border-gray-200 bg-gray-50 shrink-0"
+                          className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-gray-50 shrink-0"
                         />
                         <span className="text-lg">{category.emoji}</span>
                         <span className="text-sm font-semibold text-gray-900 truncate">
                           {category.name}
                         </span>
                       </div>
-                      <div className="flex gap-2 shrink-0">
+                      <div className="flex flex-wrap gap-2 shrink-0">
                         <button
+                          type="button"
                           onClick={() => startEditCategory(category)}
-                          disabled={deletingCategoryId === category.id}
+                          disabled={
+                            deletingCategoryId === category.id ||
+                            changingPictureCategoryId === category.id
+                          }
                           className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
                         >
                           Edit
                         </button>
                         <button
+                          type="button"
+                          onClick={() => {
+                            categoryPictureTargetRef.current = category;
+                            categoryRowImageInputRef.current?.click();
+                          }}
+                          disabled={
+                            deletingCategoryId === category.id ||
+                            changingPictureCategoryId === category.id
+                          }
+                          className="px-3 py-1.5 rounded-lg bg-indigo-50 text-indigo-800 text-sm font-semibold hover:bg-indigo-100 disabled:opacity-50"
+                        >
+                          {changingPictureCategoryId === category.id
+                            ? "Uploading..."
+                            : "Change Picture"}
+                        </button>
+                        {category.image !== DEFAULT_IMAGE && (
+                          <button
+                            type="button"
+                            onClick={() => void clearCategoryPicture(category)}
+                            disabled={
+                              deletingCategoryId === category.id ||
+                              changingPictureCategoryId === category.id
+                            }
+                            className="px-3 py-1.5 rounded-lg bg-amber-50 text-amber-800 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50"
+                          >
+                            Delete Picture
+                          </button>
+                        )}
+                        <button
+                          type="button"
                           onClick={() => deleteCategory(category)}
-                          disabled={deletingCategoryId === category.id}
+                          disabled={
+                            deletingCategoryId === category.id ||
+                            changingPictureCategoryId === category.id
+                          }
                           className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
                         >
-                          {deletingCategoryId === category.id ? "..." : "Delete"}
+                          {deletingCategoryId === category.id
+                            ? "..."
+                            : "Delete"}
                         </button>
                       </div>
                     </div>
@@ -1756,11 +1912,17 @@ export default function SettingsPage() {
             ) : (
               <div className="space-y-4">
                 <div className="flex flex-wrap items-center gap-3">
-                  <img
-                    src={imageUrl(receiptSettings.logoImage)}
-                    alt="Logo"
-                    className="w-20 h-20 rounded-xl object-contain border border-gray-200 bg-gray-50"
-                  />
+                  {receiptSettings.logoImage ? (
+                    <img
+                      src={imageUrl(receiptSettings.logoImage)}
+                      alt="Logo"
+                      className="w-20 h-20 rounded-xl object-contain border border-gray-200 bg-gray-50"
+                    />
+                  ) : (
+                    <div className="w-20 h-20 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
+                      No logo
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1768,26 +1930,32 @@ export default function SettingsPage() {
                       disabled={isUploadingReceiptLogo || isSavingReceipt}
                       className="px-3 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
                     >
-                      {isUploadingReceiptLogo ? "Uploading..." : "Change Logo"}
+                      {isUploadingReceiptLogo
+                        ? "Uploading..."
+                        : receiptSettings.logoImage
+                          ? "Change Logo"
+                          : "Add Logo"}
                     </button>
-                    {receiptSettings.logoImage !==
-                      DEFAULT_RECEIPT_SETTINGS.logoImage && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prev = receiptSettings.logoImage;
-                          setReceiptSettings((s) => ({
-                            ...s,
-                            logoImage: DEFAULT_RECEIPT_SETTINGS.logoImage,
-                          }));
-                          if (isUploadedImage(prev)) void deleteUploadedImage(prev);
-                        }}
-                        disabled={isUploadingReceiptLogo || isSavingReceipt}
-                        className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
-                      >
-                        Delete Logo
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prev = receiptSettings.logoImage;
+                        setReceiptSettings((s) => ({
+                          ...s,
+                          logoImage: "",
+                        }));
+                        if (isUploadedImage(prev)) void deleteUploadedImage(prev);
+                        showToast("Logo removed");
+                      }}
+                      disabled={
+                        isUploadingReceiptLogo ||
+                        isSavingReceipt ||
+                        !receiptSettings.logoImage
+                      }
+                      className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                    >
+                      Delete Logo
+                    </button>
                   </div>
                   <input
                     ref={receiptLogoInputRef}
@@ -1852,40 +2020,82 @@ export default function SettingsPage() {
                     <label className="block text-xs text-gray-500 mb-1">
                       Payment title
                     </label>
-                    <input
-                      value={receiptSettings.paymentTitle}
-                      onChange={(e) =>
-                        setReceiptSettings((s) => ({
-                          ...s,
-                          paymentTitle: e.target.value,
-                        }))
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        value={receiptSettings.paymentTitle}
+                        onChange={(e) =>
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            paymentTitle: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            paymentTitle: "",
+                          }));
+                          showToast("Payment title removed");
+                        }}
+                        disabled={
+                          isSavingReceipt || !receiptSettings.paymentTitle.trim()
+                        }
+                        className="shrink-0 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">
                       Payment line
                     </label>
-                    <input
-                      value={receiptSettings.paymentLine}
-                      onChange={(e) =>
-                        setReceiptSettings((s) => ({
-                          ...s,
-                          paymentLine: e.target.value,
-                        }))
-                      }
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        value={receiptSettings.paymentLine}
+                        onChange={(e) =>
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            paymentLine: e.target.value,
+                          }))
+                        }
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            paymentLine: "",
+                          }));
+                          showToast("Payment line removed");
+                        }}
+                        disabled={
+                          isSavingReceipt || !receiptSettings.paymentLine.trim()
+                        }
+                        className="shrink-0 px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap items-center gap-3">
-                  <img
-                    src={imageUrl(receiptSettings.paymentImage)}
-                    alt="Payment"
-                    className="w-16 h-16 rounded-xl object-contain border border-gray-200 bg-gray-50"
-                  />
+                  {receiptSettings.paymentImage ? (
+                    <img
+                      src={imageUrl(receiptSettings.paymentImage)}
+                      alt="Payment"
+                      className="w-16 h-16 rounded-xl object-contain border border-gray-200 bg-gray-50"
+                    />
+                  ) : (
+                    <div className="w-16 h-16 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-[10px] text-gray-400 text-center px-1">
+                      No image
+                    </div>
+                  )}
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
@@ -1895,26 +2105,30 @@ export default function SettingsPage() {
                     >
                       {isUploadingPaymentImage
                         ? "Uploading..."
-                        : "Change Payment Image"}
+                        : receiptSettings.paymentImage
+                          ? "Change Payment Image"
+                          : "Add Payment Image"}
                     </button>
-                    {receiptSettings.paymentImage !==
-                      DEFAULT_RECEIPT_SETTINGS.paymentImage && (
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const prev = receiptSettings.paymentImage;
-                          setReceiptSettings((s) => ({
-                            ...s,
-                            paymentImage: DEFAULT_RECEIPT_SETTINGS.paymentImage,
-                          }));
-                          if (isUploadedImage(prev)) void deleteUploadedImage(prev);
-                        }}
-                        disabled={isUploadingPaymentImage || isSavingReceipt}
-                        className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
-                      >
-                        Delete Payment Image
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const prev = receiptSettings.paymentImage;
+                        setReceiptSettings((s) => ({
+                          ...s,
+                          paymentImage: "",
+                        }));
+                        if (isUploadedImage(prev)) void deleteUploadedImage(prev);
+                        showToast("Payment image removed");
+                      }}
+                      disabled={
+                        isUploadingPaymentImage ||
+                        isSavingReceipt ||
+                        !receiptSettings.paymentImage
+                      }
+                      className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
+                    >
+                      Delete Payment Image
+                    </button>
                   </div>
                   <input
                     ref={paymentImageInputRef}

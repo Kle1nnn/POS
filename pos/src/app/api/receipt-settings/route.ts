@@ -35,19 +35,35 @@ export async function PUT(req: NextRequest) {
       paymentLine: string;
     }>;
 
-    const storeName = body.storeName?.trim() || DEFAULT_RECEIPT_SETTINGS.storeName;
+    const storeName =
+      body.storeName !== undefined
+        ? body.storeName.trim() || DEFAULT_RECEIPT_SETTINGS.storeName
+        : DEFAULT_RECEIPT_SETTINGS.storeName;
     const storeAddress =
-      body.storeAddress?.trim() || DEFAULT_RECEIPT_SETTINGS.storeAddress;
+      body.storeAddress !== undefined
+        ? body.storeAddress.trim() || DEFAULT_RECEIPT_SETTINGS.storeAddress
+        : DEFAULT_RECEIPT_SETTINGS.storeAddress;
     const storePhones =
-      body.storePhones?.trim() || DEFAULT_RECEIPT_SETTINGS.storePhones;
+      body.storePhones !== undefined
+        ? body.storePhones.trim() || DEFAULT_RECEIPT_SETTINGS.storePhones
+        : DEFAULT_RECEIPT_SETTINGS.storePhones;
+    // Allow clearing logo / payment fields with empty string
     const logoImage =
-      body.logoImage?.trim() || DEFAULT_RECEIPT_SETTINGS.logoImage;
+      body.logoImage !== undefined
+        ? body.logoImage.trim()
+        : DEFAULT_RECEIPT_SETTINGS.logoImage;
     const paymentTitle =
-      body.paymentTitle?.trim() || DEFAULT_RECEIPT_SETTINGS.paymentTitle;
+      body.paymentTitle !== undefined
+        ? body.paymentTitle.trim()
+        : DEFAULT_RECEIPT_SETTINGS.paymentTitle;
     const paymentImage =
-      body.paymentImage?.trim() || DEFAULT_RECEIPT_SETTINGS.paymentImage;
+      body.paymentImage !== undefined
+        ? body.paymentImage.trim()
+        : DEFAULT_RECEIPT_SETTINGS.paymentImage;
     const paymentLine =
-      body.paymentLine?.trim() || DEFAULT_RECEIPT_SETTINGS.paymentLine;
+      body.paymentLine !== undefined
+        ? body.paymentLine.trim()
+        : DEFAULT_RECEIPT_SETTINGS.paymentLine;
 
     await ensureReceiptSettingsTable();
     client = await pgPool.connect();

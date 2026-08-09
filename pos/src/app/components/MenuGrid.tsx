@@ -127,10 +127,23 @@ export default function MenuGrid({
     const builtinKeys = new Set(
       BUILTIN_CATEGORY_TILES.map((c) => c.key.toLowerCase()),
     );
+    const overrides = new Map(
+      customCategories.map((c) => [c.key.toLowerCase(), c] as const),
+    );
+    const mergedBuiltins = BUILTIN_CATEGORY_TILES.map((tile) => {
+      const override = overrides.get(tile.key.toLowerCase());
+      if (!override) return tile;
+      return {
+        ...tile,
+        label: override.label || tile.label,
+        emoji: override.emoji || tile.emoji,
+        image: override.image || tile.image,
+      };
+    });
     const extras = customCategories.filter(
       (c) => !builtinKeys.has(c.key.toLowerCase()),
     );
-    return [...BUILTIN_CATEGORY_TILES, ...extras];
+    return [...mergedBuiltins, ...extras];
   }, [customCategories]);
 
   const togglePizza = (id: string) =>
@@ -375,7 +388,11 @@ function Tile({
       >
         {image && !imgError ? (
           <img
-            src={`/${image}`}
+            src={
+              image.startsWith("http") || image.startsWith("/")
+                ? image
+                : `/${image}`
+            }
             alt={label}
             onError={() => setImgError(true)}
             className="object-contain"

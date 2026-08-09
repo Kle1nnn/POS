@@ -82,8 +82,10 @@ export function buildReceiptHTML(
   const isKitchen = variant === "bbq-kitchen";
   const displayItems = isKitchen ? filterBarBqItems(cartItems) : cartItems;
   const displayTotal = isKitchen ? barBqSubtotal(cartItems) : totalPrice;
-  const logoSrc = receiptImageSrc(settings.logoImage);
-  const paymentImgSrc = receiptImageSrc(settings.paymentImage);
+  const logoSrc = settings.logoImage ? receiptImageSrc(settings.logoImage) : "";
+  const paymentImgSrc = settings.paymentImage
+    ? receiptImageSrc(settings.paymentImage)
+    : "";
 
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-PK", {
@@ -130,7 +132,7 @@ export function buildReceiptHTML(
     <div class="kitchen-sub">Kitchen copy — prepare BarBQ items only</div>
     <hr style="border: none; border-top: 1.5px solid #000; margin: 7px 0 4px;" />`
     : `
-    <img src="${logoSrc}" alt="" style="width:150px; height:150px; object-fit:contain; margin-bottom:4px;"/>
+    ${logoSrc ? `<img src="${logoSrc}" alt="" style="width:150px; height:150px; object-fit:contain; margin-bottom:4px;"/>` : ""}
     <div class="store-name">${escapeHtml(settings.storeName)}</div>
     <div class="store-sub">${escapeHtml(settings.storeAddress)}</div>
     <div class="store-sub">${escapeHtml(settings.storePhones)}</div>
@@ -153,15 +155,19 @@ export function buildReceiptHTML(
         <th class="num" style="width:44px;">Sub</th>
       </tr>`;
 
-  const paymentBlock = isKitchen
-    ? ""
-    : `
+  const hasPaymentContent =
+    !!settings.paymentTitle.trim() ||
+    !!settings.paymentLine.trim() ||
+    !!settings.paymentImage.trim();
+
+  const paymentBlock =
+    isKitchen || !hasPaymentContent
+      ? ""
+      : `
   <div class="payment-box">
-    <div class="payment-title"><h3>${escapeHtml(settings.paymentTitle)}</h3></div>
-    <center><img src="${paymentImgSrc}" alt="" style="width:100px; height:100px; object-fit:contain; margin-bottom:4px;"/>
-    <div class="payment-grid">
-      <div><h3>${escapeHtml(settings.paymentLine)}</h3></div>
-    </div>
+    ${settings.paymentTitle.trim() ? `<div class="payment-title"><h3>${escapeHtml(settings.paymentTitle)}</h3></div>` : ""}
+    ${paymentImgSrc ? `<center><img src="${paymentImgSrc}" alt="" style="width:100px; height:100px; object-fit:contain; margin-bottom:4px;"/></center>` : ""}
+    ${settings.paymentLine.trim() ? `<div class="payment-grid"><div><h3>${escapeHtml(settings.paymentLine)}</h3></div></div>` : ""}
   </div>`;
 
   const totalLabel = isKitchen ? "BBQ ITEMS" : "TOTAL";
