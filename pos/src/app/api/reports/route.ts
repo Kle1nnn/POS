@@ -37,12 +37,19 @@ export async function GET(req: NextRequest) {
         [dateParam],
       );
 
+      await client.query(
+        `ALTER TABLE orders ADD COLUMN IF NOT EXISTS instructions text`,
+      );
+
       const ordersResult = await client.query(
         `
         SELECT
           o.order_code,
           o.total,
+          o.notes,
+          o.instructions,
           o.customer_name,
+          o.customer_phone,
           o.order_type,
           o.table_number,
           COALESCE(o.checked_out_at, o.created_at) AS sold_at,
@@ -53,7 +60,28 @@ export async function GET(req: NextRequest) {
               WHERE oi.order_id = o.id
             ),
             0
-          ) AS item_count
+          ) AS item_count,
+          COALESCE(
+            (
+              SELECT json_agg(
+                json_build_object(
+                  'id',              oi.product_id,
+                  'name',            oi.product_name,
+                  'category',        oi.category,
+                  'selectedSize',    oi.selected_size,
+                  'selectedTopping', oi.selected_topping,
+                  'selectedSauce',   oi.selected_sauce,
+                  'price',           oi.unit_price,
+                  'quantity',        oi.quantity,
+                  'cartKey',         oi.product_name || '-' || COALESCE(oi.selected_size,'') || '-' || COALESCE(oi.selected_topping,'') || '-' || COALESCE(oi.selected_sauce,'')
+                )
+                ORDER BY oi.id
+              )
+              FROM order_items oi
+              WHERE oi.order_id = o.id
+            ),
+            '[]'::json
+          ) AS items
         FROM orders o
         WHERE o.status = 'checkedout'
           AND o.business_date = $1::date
@@ -108,11 +136,15 @@ export async function GET(req: NextRequest) {
           orders: ordersResult.rows.map((r) => ({
             orderCode: r.order_code as string,
             total: Number(r.total),
+            notes: (r.notes as string) || "",
+            instructions: (r.instructions as string) || "",
             customerName: (r.customer_name as string) || "Walk-In Customer",
+            customerPhone: (r.customer_phone as string) || "",
             orderType: (r.order_type as string) || "Delivery",
             tableNumber: r.table_number as number | null,
             soldAt: r.sold_at as string,
             itemCount: Number(r.item_count),
+            items: Array.isArray(r.items) ? r.items : [],
           })),
           totals,
         },

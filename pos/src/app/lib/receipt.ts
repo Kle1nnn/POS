@@ -1,6 +1,50 @@
 import { CartItem } from "../context/CartContext";
+import {
+  DEFAULT_RECEIPT_SETTINGS,
+  type ReceiptSettings,
+} from "../../lib/receipt-settings-shared";
 
 export type ReceiptVariant = "customer" | "bbq-kitchen";
+
+export type { ReceiptSettings };
+
+function receiptImageSrc(image: string) {
+  if (!image) return "/logo.png";
+  if (image.startsWith("http") || image.startsWith("/") || image.startsWith("data:")) {
+    return image;
+  }
+  return `/${image}`;
+}
+
+function escapeHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+let cachedSettings: ReceiptSettings | null = null;
+
+export async function fetchReceiptSettings(
+  force = false,
+): Promise<ReceiptSettings> {
+  if (!force && cachedSettings) return cachedSettings;
+  try {
+    const res = await fetch("/api/receipt-settings");
+    const data = await res.json().catch(() => ({}));
+    cachedSettings = (data.settings as ReceiptSettings) ?? {
+      ...DEFAULT_RECEIPT_SETTINGS,
+    };
+  } catch {
+    cachedSettings = { ...DEFAULT_RECEIPT_SETTINGS };
+  }
+  return cachedSettings;
+}
+
+export function clearReceiptSettingsCache() {
+  cachedSettings = null;
+}
 
 export function isBarBqItem(item: { category?: string | null }): boolean {
   const c = (item.category ?? "").trim().toLowerCase().replace(/\s+/g, "");
@@ -33,10 +77,13 @@ export function buildReceiptHTML(
   orderType?: string,
   tableNumber?: number | null,
   variant: ReceiptVariant = "customer",
+  settings: ReceiptSettings = DEFAULT_RECEIPT_SETTINGS,
 ): string {
   const isKitchen = variant === "bbq-kitchen";
   const displayItems = isKitchen ? filterBarBqItems(cartItems) : cartItems;
   const displayTotal = isKitchen ? barBqSubtotal(cartItems) : totalPrice;
+  const logoSrc = receiptImageSrc(settings.logoImage);
+  const paymentImgSrc = receiptImageSrc(settings.paymentImage);
 
   const now = new Date();
   const dateStr = now.toLocaleDateString("en-PK", {
@@ -83,10 +130,10 @@ export function buildReceiptHTML(
     <div class="kitchen-sub">Kitchen copy — prepare BarBQ items only</div>
     <hr style="border: none; border-top: 1.5px solid #000; margin: 7px 0 4px;" />`
     : `
-    <img src="logo.png" alt="" style="width:150px; height:150px; object-fit:contain; margin-bottom:4px;"/>
-    <div class="store-name">Tasty Bites Pizza, BarBQ & Fast Food</div>
-    <div class="store-sub">Kamran Centre, Tharushah</div>
-    <div class="store-sub">03213611550 · 03063096900</div>
+    <img src="${logoSrc}" alt="" style="width:150px; height:150px; object-fit:contain; margin-bottom:4px;"/>
+    <div class="store-name">${escapeHtml(settings.storeName)}</div>
+    <div class="store-sub">${escapeHtml(settings.storeAddress)}</div>
+    <div class="store-sub">${escapeHtml(settings.storePhones)}</div>
     ${isPaid ? `<hr style="border: none; border-top: 1px solid #000; margin: 7px 0 4px;" /><div class="paid-stamp">✓ BILL PAID</div>` : ""}
     <hr style="border: none; border-top: 1.5px solid #000; margin: 7px 0 4px;" />`;
 
@@ -110,10 +157,10 @@ export function buildReceiptHTML(
     ? ""
     : `
   <div class="payment-box">
-    <div class="payment-title"><h3>Online payment<h/3></div>
-    <center><img src="Jz.jpg" alt="" style="width:100px; height:100px; object-fit:contain; margin-bottom:4px;"/>
+    <div class="payment-title"><h3>${escapeHtml(settings.paymentTitle)}</h3></div>
+    <center><img src="${paymentImgSrc}" alt="" style="width:100px; height:100px; object-fit:contain; margin-bottom:4px;"/>
     <div class="payment-grid">
-      <div><h3>JazzCash 03213611550 M.Saleh<h/3></div>
+      <div><h3>${escapeHtml(settings.paymentLine)}</h3></div>
     </div>
   </div>`;
 
@@ -350,6 +397,7 @@ export async function printOrderReceipts(
   orderType?: string,
   tableNumber?: number | null,
 ): Promise<void> {
+  const settings = await fetchReceiptSettings();
   const common = [
     cartItems,
     totalPrice,
@@ -362,11 +410,11 @@ export async function printOrderReceipts(
     tableNumber,
   ] as const;
 
-  const customerHtml = buildReceiptHTML(...common, "customer");
+  const customerHtml = buildReceiptHTML(...common, "customer", settings);
   await printHtml(customerHtml);
 
   if (hasBarBqItems(cartItems)) {
-    const kitchenHtml = buildReceiptHTML(...common, "bbq-kitchen");
+    const kitchenHtml = buildReceiptHTML(...common, "bbq-kitchen", settings);
     await printHtml(kitchenHtml);
   }
 }
