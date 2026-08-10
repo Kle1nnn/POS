@@ -10,7 +10,7 @@ import {
 } from "../lib/receipt";
 import { DEFAULT_RECEIPT_SETTINGS } from "../../lib/receipt-settings-shared";
 
-type Tab = "contacts" | "catalog" | "reports" | "receipt" | "backup";
+type Tab = "contacts" | "catalog" | "reports" | "ledger" | "receipt" | "backup";
 
 type Customer = {
   id: number;
@@ -87,6 +87,39 @@ type ReportTotals = {
   totalRevenue: number;
   totalOrders: number;
   totalItems: number;
+};
+
+type ItemReportRow = {
+  period?: string;
+  name: string;
+  category: string | null;
+  selectedSize: string | null;
+  selectedTopping: string | null;
+  selectedSauce: string | null;
+  quantitySold: number;
+  revenue: number;
+  orderCount: number;
+};
+
+type DayCustomerOption = {
+  name: string;
+  phone: string;
+};
+
+type LedgerEntry = {
+  orderCode: string;
+  total: number;
+  balance: number;
+  notes?: string;
+  instructions?: string;
+  customerName: string;
+  customerPhone?: string;
+  orderType: string;
+  tableNumber: number | null;
+  businessDate: string;
+  soldAt: string;
+  itemCount: number;
+  items?: DateOrderRow["items"];
 };
 
 const DEFAULT_IMAGE = "deals.png";
@@ -211,15 +244,23 @@ export default function SettingsPage() {
     const d = String(now.getDate()).padStart(2, "0");
     return `${y}-${m}-${d}`;
   }, [now]);
-  const [reportMode, setReportMode] = useState<"date" | "daily" | "monthly">(
-    "date",
-  );
+  const [reportMode, setReportMode] = useState<
+    "date" | "daily" | "monthly" | "items"
+  >("date");
   const [reportDate, setReportDate] = useState(todayStr);
   const [reportYear, setReportYear] = useState(now.getFullYear());
   const [reportMonth, setReportMonth] = useState(now.getMonth() + 1);
   const [dailyRows, setDailyRows] = useState<DailyRow[]>([]);
   const [monthlyRows, setMonthlyRows] = useState<MonthlyRow[]>([]);
   const [dateOrders, setDateOrders] = useState<DateOrderRow[]>([]);
+  const [itemReportRows, setItemReportRows] = useState<ItemReportRow[]>([]);
+  const [dayCustomers, setDayCustomers] = useState<DayCustomerOption[]>([]);
+  const [reportCustomerKey, setReportCustomerKey] = useState("all");
+  const [itemReportRange, setItemReportRange] = useState<
+    "date" | "daily" | "monthly"
+  >("date");
+  const [reportCategory, setReportCategory] = useState("all");
+  const [reportCategories, setReportCategories] = useState<string[]>([]);
   const [reportTotals, setReportTotals] = useState<ReportTotals>({
     totalRevenue: 0,
     totalOrders: 0,
@@ -237,6 +278,16 @@ export default function SettingsPage() {
     orderType?: string;
     tableNumber?: number | null;
   } | null>(null);
+
+  // Customer ledger
+  const [ledgerCustomerKey, setLedgerCustomerKey] = useState("");
+  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [ledgerTotals, setLedgerTotals] = useState<ReportTotals>({
+    totalRevenue: 0,
+    totalOrders: 0,
+    totalItems: 0,
+  });
+  const [ledgerLoading, setLedgerLoading] = useState(false);
 
   // Receipt settings
   const [receiptSettings, setReceiptSettings] = useState<ReceiptSettings>({
@@ -294,6 +345,24 @@ export default function SettingsPage() {
       const params = new URLSearchParams({ type: reportMode });
       if (reportMode === "date") {
         params.set("date", reportDate);
+      } else if (reportMode === "items") {
+        params.set("range", itemReportRange);
+        if (itemReportRange === "date") {
+          params.set("date", reportDate);
+        } else {
+          params.set("year", String(reportYear));
+          if (itemReportRange === "daily") {
+            params.set("month", String(reportMonth));
+          }
+        }
+        if (reportCustomerKey !== "all") {
+          const [name, phone = ""] = reportCustomerKey.split("\t");
+          if (name) params.set("customerName", name);
+          if (phone) params.set("customerPhone", phone);
+        }
+        if (reportCategory !== "all") {
+          params.set("category", reportCategory);
+        }
       } else {
         params.set("year", String(reportYear));
         if (reportMode === "daily") params.set("month", String(reportMonth));
@@ -307,14 +376,30 @@ export default function SettingsPage() {
         setDailyRows(data.rows ?? []);
         setDateOrders(data.orders ?? []);
         setMonthlyRows([]);
+        setItemReportRows([]);
+        setDayCustomers([]);
+        setReportCategories([]);
+      } else if (reportMode === "items") {
+        setItemReportRows(data.items ?? []);
+        setDayCustomers(data.dayCustomers ?? []);
+        setReportCategories(data.categories ?? []);
+        setDailyRows([]);
+        setDateOrders([]);
+        setMonthlyRows([]);
       } else if (reportMode === "daily") {
         setDailyRows(data.rows ?? []);
         setDateOrders([]);
         setMonthlyRows([]);
+        setItemReportRows([]);
+        setDayCustomers([]);
+        setReportCategories([]);
       } else {
         setMonthlyRows(data.rows ?? []);
         setDailyRows([]);
         setDateOrders([]);
+        setItemReportRows([]);
+        setDayCustomers([]);
+        setReportCategories([]);
       }
       setReportTotals(
         data.totals ?? { totalRevenue: 0, totalOrders: 0, totalItems: 0 },
@@ -325,19 +410,58 @@ export default function SettingsPage() {
     } finally {
       setReportsLoading(false);
     }
-  }, [reportMode, reportYear, reportMonth, reportDate]);
+  }, [
+    reportMode,
+    reportYear,
+    reportMonth,
+    reportDate,
+    reportCustomerKey,
+    itemReportRange,
+    reportCategory,
+  ]);
+
+  const loadLedger = useCallback(async () => {
+    if (!ledgerCustomerKey) {
+      setLedgerEntries([]);
+      setLedgerTotals({ totalRevenue: 0, totalOrders: 0, totalItems: 0 });
+      return;
+    }
+    setLedgerLoading(true);
+    try {
+      const [name, phone = ""] = ledgerCustomerKey.split("\t");
+      const params = new URLSearchParams({ name });
+      if (phone) params.set("phone", phone);
+      const res = await fetch(`/api/customers/ledger?${params.toString()}`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load ledger");
+      setLedgerEntries(data.entries ?? []);
+      setLedgerTotals(
+        data.totals ?? { totalRevenue: 0, totalOrders: 0, totalItems: 0 },
+      );
+    } catch (error) {
+      console.error("Failed to load customer ledger", error);
+      showToast("Failed to load customer ledger");
+      setLedgerEntries([]);
+    } finally {
+      setLedgerLoading(false);
+    }
+  }, [ledgerCustomerKey]);
 
   useEffect(() => {
     loadCustomers();
   }, []);
 
   useEffect(() => {
-    if (tab === "catalog") void loadCatalog();
+    if (tab === "catalog" || tab === "reports") void loadCatalog();
   }, [tab, loadCatalog]);
 
   useEffect(() => {
     if (tab === "reports") void loadReports();
   }, [tab, loadReports]);
+
+  useEffect(() => {
+    if (tab === "ledger") void loadLedger();
+  }, [tab, loadLedger]);
 
   const loadReceiptSettings = useCallback(async () => {
     setReceiptLoading(true);
@@ -358,7 +482,7 @@ export default function SettingsPage() {
     if (tab === "receipt") void loadReceiptSettings();
   }, [tab, loadReceiptSettings]);
 
-  const openReportPrint = (order: DateOrderRow) => {
+  const openReportPrint = (order: DateOrderRow | LedgerEntry) => {
     const items: CartItem[] = (order.items || []).map((item) => ({
       id: String(item.id ?? item.name),
       name: item.name,
@@ -375,11 +499,10 @@ export default function SettingsPage() {
       quantity: item.quantity ?? 1,
       price: Number(item.price ?? 0),
     }));
-
     setPrintOrder({
       id: order.orderCode,
       items,
-      total: Number(order.total),
+      total: order.total,
       notes: order.notes ?? "",
       instructions: order.instructions ?? "",
       customer: {
@@ -419,6 +542,64 @@ export default function SettingsPage() {
         (p.description || "").toLowerCase().includes(q),
     );
   }, [catalogProducts, itemQuery]);
+
+  const reportCustomerOptions = useMemo(() => {
+    const map = new Map<string, DayCustomerOption>();
+    for (const c of dayCustomers) {
+      const key = `${c.name}\t${c.phone}`;
+      map.set(key, c);
+    }
+    for (const c of savedCustomers) {
+      const name = c.name.trim() || "Walk-In Customer";
+      const phone = c.phone.trim();
+      const key = `${name}\t${phone}`;
+      if (!map.has(key)) map.set(key, { name, phone });
+    }
+    return Array.from(map.entries())
+      .map(([key, value]) => ({ key, ...value }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [dayCustomers, savedCustomers]);
+
+  const ledgerCustomerOptions = useMemo(() => {
+    return savedCustomers
+      .map((c) => {
+        const name = c.name.trim() || "Walk-In Customer";
+        const phone = c.phone.trim();
+        return { key: `${name}\t${phone}`, name, phone };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [savedCustomers]);
+
+  const categoryFilterOptions = useMemo(() => {
+    const set = new Set<string>([
+      ...BUILTIN_CATEGORIES,
+      ...categories.map((c) => c.name),
+      ...reportCategories,
+    ]);
+    return Array.from(set).sort((a, b) => a.localeCompare(b));
+  }, [categories, reportCategories]);
+
+  const itemReportPeriodLabel = useMemo(() => {
+    if (itemReportRange === "date") return reportDate;
+    if (itemReportRange === "daily") {
+      return monthLabel(reportYear, reportMonth);
+    }
+    return String(reportYear);
+  }, [itemReportRange, reportDate, reportYear, reportMonth]);
+
+  const itemReportVariant = (item: ItemReportRow) => {
+    const parts: string[] = [];
+    if (item.selectedSize && item.selectedSize !== "N/A") {
+      parts.push(item.selectedSize);
+    }
+    if (item.selectedTopping && item.selectedTopping !== "None") {
+      parts.push(item.selectedTopping);
+    }
+    if (item.selectedSauce && item.selectedSauce !== "None") {
+      parts.push(item.selectedSauce);
+    }
+    return parts.length > 0 ? parts.join(" · ") : null;
+  };
 
   const updateDraft = (id: number, field: "name" | "phone", value: string) => {
     setDrafts((prev) => ({
@@ -1210,6 +1391,7 @@ export default function SettingsPage() {
               { id: "contacts", label: "Contacts" },
               { id: "catalog", label: "Add Item / Category" },
               { id: "reports", label: "Reports" },
+              { id: "ledger", label: "Customer Ledger" },
               { id: "receipt", label: "Receipt Settings" },
               { id: "backup", label: "Full Backup" },
             ] as const
@@ -2180,6 +2362,20 @@ export default function SettingsPage() {
                   Select Date
                 </button>
                 <button
+                  onClick={() => {
+                    setReportMode("items");
+                    setReportCustomerKey("all");
+                    setReportCategory("all");
+                  }}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    reportMode === "items"
+                      ? "bg-[#1a3a5c] text-white"
+                      : "bg-gray-50 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  Item Report
+                </button>
+                <button
                   onClick={() => setReportMode("daily")}
                   className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                     reportMode === "daily"
@@ -2201,8 +2397,38 @@ export default function SettingsPage() {
                 </button>
               </div>
 
+              {reportMode === "items" && (
+                <div className="flex flex-wrap gap-2 mb-4">
+                  {(
+                    [
+                      { id: "date", label: "By Date" },
+                      { id: "daily", label: "Day by Day" },
+                      { id: "monthly", label: "Monthly" },
+                    ] as const
+                  ).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => {
+                        setItemReportRange(r.id);
+                        setReportCustomerKey("all");
+                        setReportCategory("all");
+                      }}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                        itemReportRange === r.id
+                          ? "bg-amber-800 text-white"
+                          : "bg-gray-50 text-gray-700 border border-gray-200"
+                      }`}
+                    >
+                      {r.label}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               <div className="flex flex-wrap items-end gap-3">
-                {reportMode === "date" ? (
+                {reportMode === "date" ||
+                (reportMode === "items" && itemReportRange === "date") ? (
                   <div>
                     <label className="block text-xs text-gray-500 mb-1">
                       Date
@@ -2210,11 +2436,19 @@ export default function SettingsPage() {
                     <input
                       type="date"
                       value={reportDate}
-                      onChange={(e) => setReportDate(e.target.value)}
+                      onChange={(e) => {
+                        setReportDate(e.target.value);
+                        if (reportMode === "items") {
+                          setReportCustomerKey("all");
+                          setReportCategory("all");
+                        }
+                      }}
                       className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
                     />
                   </div>
-                ) : (
+                ) : reportMode === "items" ||
+                  reportMode === "daily" ||
+                  reportMode === "monthly" ? (
                   <>
                     <div>
                       <label className="block text-xs text-gray-500 mb-1">
@@ -2222,7 +2456,13 @@ export default function SettingsPage() {
                       </label>
                       <select
                         value={reportYear}
-                        onChange={(e) => setReportYear(Number(e.target.value))}
+                        onChange={(e) => {
+                          setReportYear(Number(e.target.value));
+                          if (reportMode === "items") {
+                            setReportCustomerKey("all");
+                            setReportCategory("all");
+                          }
+                        }}
                         className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
                       >
                         {yearOptions.map((y) => (
@@ -2232,16 +2472,22 @@ export default function SettingsPage() {
                         ))}
                       </select>
                     </div>
-                    {reportMode === "daily" && (
+                    {(reportMode === "daily" ||
+                      (reportMode === "items" &&
+                        itemReportRange === "daily")) && (
                       <div>
                         <label className="block text-xs text-gray-500 mb-1">
                           Month
                         </label>
                         <select
                           value={reportMonth}
-                          onChange={(e) =>
-                            setReportMonth(Number(e.target.value))
-                          }
+                          onChange={(e) => {
+                            setReportMonth(Number(e.target.value));
+                            if (reportMode === "items") {
+                              setReportCustomerKey("all");
+                              setReportCategory("all");
+                            }
+                          }}
                           className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
                         >
                           {Array.from({ length: 12 }, (_, i) => i + 1).map(
@@ -2258,7 +2504,50 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </>
+                ) : null}
+
+                {reportMode === "items" && (
+                  <>
+                    <div className="min-w-[180px]">
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Category
+                      </label>
+                      <select
+                        value={reportCategory}
+                        onChange={(e) => setReportCategory(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        <option value="all">All categories</option>
+                        {categoryFilterOptions.map((cat) => (
+                          <option key={cat} value={cat}>
+                            {cat}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="min-w-[220px]">
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Customer
+                      </label>
+                      <select
+                        value={reportCustomerKey}
+                        onChange={(e) =>
+                          setReportCustomerKey(e.target.value)
+                        }
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        <option value="all">All customers</option>
+                        {reportCustomerOptions.map((c) => (
+                          <option key={c.key} value={c.key}>
+                            {c.name}
+                            {c.phone ? ` (${c.phone})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
                 )}
+
                 <button
                   onClick={() => void loadReports()}
                   disabled={reportsLoading}
@@ -2295,13 +2584,105 @@ export default function SettingsPage() {
                 <p className="text-sm font-semibold text-gray-900">
                   {reportMode === "date"
                     ? `Report for ${reportDate}`
-                    : reportMode === "daily"
-                      ? `Day-by-day · ${monthLabel(reportYear, reportMonth)}`
-                      : `Monthly · ${reportYear}`}
+                    : reportMode === "items"
+                      ? `Item report · ${itemReportPeriodLabel}${
+                          reportCategory !== "all"
+                            ? ` · ${reportCategory}`
+                            : " · All categories"
+                        }${
+                          reportCustomerKey !== "all"
+                            ? ` · ${reportCustomerKey.split("\t")[0]}`
+                            : " · All customers"
+                        }`
+                      : reportMode === "daily"
+                        ? `Day-by-day · ${monthLabel(reportYear, reportMonth)}`
+                        : `Monthly · ${reportYear}`}
                 </p>
               </div>
               {reportsLoading ? (
                 <div className="p-8 text-sm text-gray-500">Loading report...</div>
+              ) : reportMode === "items" ? (
+                itemReportRows.length === 0 ? (
+                  <div className="p-8 text-sm text-gray-500">
+                    No items sold for this period
+                    {reportCategory !== "all" ? " and category" : ""}
+                    {reportCustomerKey !== "all" ? " and customer" : ""}.
+                  </div>
+                ) : (
+                  <div className="divide-y divide-gray-100">
+                    <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
+                      {itemReportRange !== "date" && (
+                        <div className="col-span-2">Period</div>
+                      )}
+                      <div
+                        className={
+                          itemReportRange !== "date"
+                            ? "col-span-4"
+                            : "col-span-5"
+                        }
+                      >
+                        Item
+                      </div>
+                      <div className="col-span-2">Category</div>
+                      <div className="col-span-2 text-right">Qty</div>
+                      <div
+                        className={`text-right ${
+                          itemReportRange !== "date"
+                            ? "col-span-2"
+                            : "col-span-3"
+                        }`}
+                      >
+                        Revenue
+                      </div>
+                    </div>
+                    {itemReportRows.map((item, idx) => {
+                      const variant = itemReportVariant(item);
+                      return (
+                        <div
+                          key={`${item.period}-${item.name}-${item.category}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}-${idx}`}
+                          className="px-4 py-3 grid grid-cols-12 gap-2 text-sm items-start"
+                        >
+                          {itemReportRange !== "date" && (
+                            <div className="col-span-2 text-gray-700 text-xs font-medium">
+                              {item.period}
+                            </div>
+                          )}
+                          <div
+                            className={`min-w-0 ${
+                              itemReportRange !== "date"
+                                ? "col-span-4"
+                                : "col-span-5"
+                            }`}
+                          >
+                            <p className="font-medium text-gray-900 truncate">
+                              {item.name}
+                            </p>
+                            {variant && (
+                              <p className="text-xs text-gray-500 truncate">
+                                {variant}
+                              </p>
+                            )}
+                          </div>
+                          <div className="col-span-2 text-gray-700 truncate">
+                            {item.category || "—"}
+                          </div>
+                          <div className="col-span-2 text-right text-gray-700">
+                            {item.quantitySold}
+                          </div>
+                          <div
+                            className={`text-right font-semibold ${
+                              itemReportRange !== "date"
+                                ? "col-span-2"
+                                : "col-span-3"
+                            }`}
+                          >
+                            {money(item.revenue)}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )
               ) : reportMode === "monthly" ? (
                 monthlyRows.length === 0 ? (
                   <div className="p-8 text-sm text-gray-500">
@@ -2433,6 +2814,142 @@ export default function SettingsPage() {
                   </div>
                 )}
               </div>
+            )}
+          </>
+        )}
+
+        {tab === "ledger" && (
+          <>
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Customer ledger
+              </p>
+              <p className="text-sm text-gray-500 mb-3">
+                Select a customer to see all checked-out orders, totals, and
+                running balance.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[260px] flex-1">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Customer
+                  </label>
+                  <select
+                    value={ledgerCustomerKey}
+                    onChange={(e) => setLedgerCustomerKey(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                  >
+                    <option value="">Select customer...</option>
+                    {ledgerCustomerOptions.map((c) => (
+                      <option key={c.key} value={c.key}>
+                        {c.name}
+                        {c.phone ? ` (${c.phone})` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadLedger()}
+                  disabled={ledgerLoading || !ledgerCustomerKey}
+                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                >
+                  {ledgerLoading ? "Loading..." : "View Ledger"}
+                </button>
+              </div>
+            </div>
+
+            {ledgerCustomerKey && (
+              <>
+                <div className="grid grid-cols-3 gap-3 mb-4">
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-500 mb-1">Total spent</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {money(ledgerTotals.totalRevenue)}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-500 mb-1">Orders</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {ledgerTotals.totalOrders}
+                    </p>
+                  </div>
+                  <div className="bg-white rounded-2xl border border-gray-100 p-4">
+                    <p className="text-xs text-gray-500 mb-1">Items</p>
+                    <p className="text-lg font-bold text-gray-900">
+                      {ledgerTotals.totalItems}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                  <div className="px-4 py-3 border-b border-gray-100">
+                    <p className="text-sm font-semibold text-gray-900">
+                      Ledger · {ledgerCustomerKey.split("\t")[0]}
+                      {ledgerCustomerKey.split("\t")[1]
+                        ? ` (${ledgerCustomerKey.split("\t")[1]})`
+                        : ""}
+                    </p>
+                  </div>
+                  {ledgerLoading ? (
+                    <div className="p-8 text-sm text-gray-500">
+                      Loading ledger...
+                    </div>
+                  ) : ledgerEntries.length === 0 ? (
+                    <div className="p-8 text-sm text-gray-500">
+                      No checked-out orders for this customer.
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-gray-100">
+                      <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
+                        <div className="col-span-2">Date</div>
+                        <div className="col-span-3">Receipt #</div>
+                        <div className="col-span-2">Type</div>
+                        <div className="col-span-2 text-right">Amount</div>
+                        <div className="col-span-2 text-right">Balance</div>
+                        <div className="col-span-1 text-right">Print</div>
+                      </div>
+                      {ledgerEntries.map((entry) => (
+                        <div
+                          key={entry.orderCode}
+                          className="px-4 py-3 grid grid-cols-12 gap-2 text-sm items-center"
+                        >
+                          <div className="col-span-2 text-gray-700">
+                            {entry.businessDate}
+                          </div>
+                          <div className="col-span-3 font-medium text-gray-900 truncate">
+                            {entry.orderCode}
+                            <p className="text-xs text-gray-400 font-normal">
+                              {entry.itemCount} item
+                              {entry.itemCount === 1 ? "" : "s"}
+                            </p>
+                          </div>
+                          <div className="col-span-2 text-gray-700">
+                            {entry.orderType}
+                            {entry.tableNumber != null
+                              ? ` #${entry.tableNumber}`
+                              : ""}
+                          </div>
+                          <div className="col-span-2 text-right font-semibold">
+                            {money(entry.total)}
+                          </div>
+                          <div className="col-span-2 text-right text-gray-800">
+                            {money(entry.balance)}
+                          </div>
+                          <div className="col-span-1 flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => openReportPrint(entry)}
+                              className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100"
+                            >
+                              Print
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </>
             )}
           </>
         )}

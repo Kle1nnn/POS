@@ -11,11 +11,25 @@ export async function GET(req: NextRequest) {
   let client;
   try {
     const businessDate = req.nextUrl.searchParams.get("businessDate");
+    const receiptParam =
+      req.nextUrl.searchParams.get("receipt")?.trim() ||
+      req.nextUrl.searchParams.get("orderCode")?.trim() ||
+      "";
     client = await pgPool.connect();
     await ensureInstructionsColumn(client);
 
-    const queryText = businessDate
-      ? `SELECT
+    const whereParts = [`o.status = 'checkedout'`];
+    const params: string[] = [];
+
+    if (receiptParam) {
+      params.push(`%${receiptParam}%`);
+      whereParts.push(`LOWER(o.order_code) LIKE LOWER($${params.length})`);
+    } else if (businessDate) {
+      params.push(businessDate);
+      whereParts.push(`o.business_date = $${params.length}::date`);
+    }
+
+    const queryText = `SELECT
            o.order_code,
            o.status,
            o.total,
@@ -45,46 +59,11 @@ export async function GET(req: NextRequest) {
            ) AS items
          FROM orders o
          LEFT JOIN order_items oi ON oi.order_id = o.id
-         WHERE o.status = 'checkedout' AND o.business_date = $1::date
-         GROUP BY o.id
-         ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
-         LIMIT 100`
-      : `SELECT
-           o.order_code,
-           o.status,
-           o.total,
-           o.notes,
-           o.instructions,
-           o.customer_name,
-           o.customer_phone,
-           o.order_type,
-           o.table_number,
-           o.created_at,
-           o.checked_out_at,
-           COALESCE(
-             json_agg(
-               json_build_object(
-                 'id',              oi.product_id,
-                 'name',            oi.product_name,
-                 'category',        oi.category,
-                 'selectedSize',    oi.selected_size,
-                 'selectedTopping', oi.selected_topping,
-                 'selectedSauce',   oi.selected_sauce,
-                 'price',           oi.unit_price,
-                 'quantity',        oi.quantity,
-                 'cartKey',         oi.product_name || '-' || COALESCE(oi.selected_size,'') || '-' || COALESCE(oi.selected_topping,'') || '-' || COALESCE(oi.selected_sauce,'')
-               )
-             ) FILTER (WHERE oi.id IS NOT NULL),
-             '[]'::json
-           ) AS items
-         FROM orders o
-         LEFT JOIN order_items oi ON oi.order_id = o.id
-         WHERE o.status = 'checkedout'
+         WHERE ${whereParts.join(" AND ")}
          GROUP BY o.id
          ORDER BY COALESCE(o.checked_out_at, o.created_at) DESC
          LIMIT 100`;
 
-    const params = businessDate ? [businessDate] : [];
     const result = await client.query(queryText, params);
 
     return NextResponse.json(

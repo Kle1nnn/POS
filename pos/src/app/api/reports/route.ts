@@ -7,6 +7,12 @@ export async function GET(req: NextRequest) {
   const yearParam = req.nextUrl.searchParams.get("year");
   const monthParam = req.nextUrl.searchParams.get("month");
   const dateParam = req.nextUrl.searchParams.get("date")?.trim() ?? "";
+  const customerNameParam =
+    req.nextUrl.searchParams.get("customerName")?.trim() ?? "";
+  const customerPhoneParam =
+    req.nextUrl.searchParams.get("customerPhone")?.trim() ?? "";
+  const categoryParam =
+    req.nextUrl.searchParams.get("category")?.trim() ?? "";
 
   const now = new Date();
   const year = yearParam ? Number(yearParam) : now.getFullYear();
@@ -146,6 +152,207 @@ export async function GET(req: NextRequest) {
             itemCount: Number(r.item_count),
             items: Array.isArray(r.items) ? r.items : [],
           })),
+          totals,
+        },
+        { status: 200 },
+      );
+    }
+
+    if (type === "items") {
+      const range =
+        req.nextUrl.searchParams.get("range")?.trim() ||
+        (dateParam ? "date" : "daily");
+
+      if (range === "date" && !/^\d{4}-\d{2}-\d{2}$/.test(dateParam)) {
+        return NextResponse.json(
+          { error: "valid date (YYYY-MM-DD) is required" },
+          { status: 400 },
+        );
+      }
+      if (
+        (range === "daily" || range === "monthly") &&
+        (!Number.isInteger(year) || year < 2000 || year > 2100)
+      ) {
+        return NextResponse.json(
+          { error: "valid year is required" },
+          { status: 400 },
+        );
+      }
+      if (
+        range === "daily" &&
+        (!Number.isInteger(month) || month < 1 || month > 12)
+      ) {
+        return NextResponse.json(
+          { error: "valid month is required" },
+          { status: 400 },
+        );
+      }
+
+      const params: Array<string | number> = [];
+      const whereParts: string[] = [`o.status = 'checkedout'`];
+
+      if (range === "date") {
+        params.push(dateParam);
+        whereParts.push(`o.business_date = $${params.length}::date`);
+      } else if (range === "daily") {
+        params.push(year, month);
+        whereParts.push(`EXTRACT(YEAR FROM o.business_date) = $${params.length - 1}`);
+        whereParts.push(`EXTRACT(MONTH FROM o.business_date) = $${params.length}`);
+      } else {
+        params.push(year);
+        whereParts.push(`EXTRACT(YEAR FROM o.business_date) = $${params.length}`);
+      }
+
+      if (customerNameParam) {
+        params.push(customerNameParam);
+        whereParts.push(
+          `LOWER(COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-In Customer')) = LOWER(TRIM($${params.length}))`,
+        );
+      }
+      if (customerPhoneParam) {
+        params.push(customerPhoneParam);
+        whereParts.push(
+          `TRIM(COALESCE(o.customer_phone, '')) = TRIM($${params.length})`,
+        );
+      }
+      if (categoryParam) {
+        params.push(categoryParam);
+        whereParts.push(
+          `LOWER(TRIM(COALESCE(oi.category, ''))) = LOWER(TRIM($${params.length}))`,
+        );
+      }
+
+      const whereClause = whereParts.join(" AND ");
+
+      const periodSelect =
+        range === "date"
+          ? `o.business_date::text AS period`
+          : range === "daily"
+            ? `o.business_date::text AS period`
+            : `TO_CHAR(o.business_date, 'YYYY-MM') AS period`;
+
+      const result = await client.query(
+        `
+        SELECT
+          ${periodSelect},
+          oi.product_name,
+          oi.category,
+          oi.selected_size,
+          oi.selected_topping,
+          oi.selected_sauce,
+          SUM(oi.quantity)::integer AS quantity_sold,
+          SUM(oi.quantity * oi.unit_price)::float AS revenue,
+          COUNT(DISTINCT o.id)::integer AS order_count
+        FROM order_items oi
+        INNER JOIN orders o ON o.id = oi.order_id
+        WHERE ${whereClause}
+        GROUP BY
+          period,
+          oi.product_name,
+          oi.category,
+          oi.selected_size,
+          oi.selected_topping,
+          oi.selected_sauce
+        ORDER BY
+          period DESC,
+          COALESCE(oi.category, '') ASC,
+          quantity_sold DESC,
+          oi.product_name ASC
+        `,
+        params,
+      );
+
+      // Customers / categories in range — ignore customer & category filters so lists stay full
+      const filterParams: Array<string | number> = [];
+      const filterWhere = [`o.status = 'checkedout'`];
+      if (range === "date") {
+        filterParams.push(dateParam);
+        filterWhere.push(`o.business_date = $${filterParams.length}::date`);
+      } else if (range === "daily") {
+        filterParams.push(year, month);
+        filterWhere.push(
+          `EXTRACT(YEAR FROM o.business_date) = $${filterParams.length - 1}`,
+        );
+        filterWhere.push(
+          `EXTRACT(MONTH FROM o.business_date) = $${filterParams.length}`,
+        );
+      } else {
+        filterParams.push(year);
+        filterWhere.push(
+          `EXTRACT(YEAR FROM o.business_date) = $${filterParams.length}`,
+        );
+      }
+
+      const customersResult = await client.query(
+        `
+        SELECT DISTINCT
+          COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-In Customer') AS customer_name,
+          COALESCE(TRIM(o.customer_phone), '') AS customer_phone
+        FROM orders o
+        WHERE ${filterWhere.join(" AND ")}
+        ORDER BY customer_name ASC, customer_phone ASC
+        `,
+        filterParams,
+      );
+
+      const categoriesResult = await client.query(
+        `
+        SELECT DISTINCT TRIM(oi.category) AS category
+        FROM order_items oi
+        INNER JOIN orders o ON o.id = oi.order_id
+        WHERE ${filterWhere.join(" AND ")}
+          AND TRIM(COALESCE(oi.category, '')) <> ''
+        ORDER BY category ASC
+        `,
+        filterParams,
+      );
+
+      const items = result.rows.map((row) => ({
+        period: row.period as string,
+        name: row.product_name as string,
+        category: (row.category as string | null) ?? null,
+        selectedSize: (row.selected_size as string | null) ?? null,
+        selectedTopping: (row.selected_topping as string | null) ?? null,
+        selectedSauce: (row.selected_sauce as string | null) ?? null,
+        quantitySold: Number(row.quantity_sold),
+        revenue: Number(row.revenue),
+        orderCount: Number(row.order_count),
+      }));
+
+      const ordersCountResult = await client.query(
+        `
+        SELECT COUNT(DISTINCT o.id)::integer AS order_count
+        FROM order_items oi
+        INNER JOIN orders o ON o.id = oi.order_id
+        WHERE ${whereClause}
+        `,
+        params,
+      );
+
+      const totals = {
+        totalRevenue: items.reduce((s, i) => s + i.revenue, 0),
+        totalOrders: Number(ordersCountResult.rows[0]?.order_count ?? 0),
+        totalItems: items.reduce((s, i) => s + i.quantitySold, 0),
+      };
+
+      return NextResponse.json(
+        {
+          type: "items",
+          range,
+          date: range === "date" ? dateParam : null,
+          year: range !== "date" ? year : null,
+          month: range === "daily" ? month : null,
+          category: categoryParam || null,
+          customerName: customerNameParam || null,
+          customerPhone: customerPhoneParam || null,
+          items,
+          dayCustomers: customersResult.rows.map((r) => ({
+            name: r.customer_name as string,
+            phone: r.customer_phone as string,
+          })),
+          categories: categoriesResult.rows.map(
+            (r) => r.category as string,
+          ),
           totals,
         },
         { status: 200 },

@@ -14,6 +14,7 @@ export default function OrdersPage() {
   const router = useRouter();
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [receiptSearch, setReceiptSearch] = useState("");
   const [printOrder, setPrintOrder] = useState<{
     id: string;
     items: CartItem[];
@@ -96,6 +97,12 @@ export default function OrdersPage() {
     if (order) openPrint(order, true);
   };
 
+  const filteredOrders = receiptSearch.trim()
+    ? savedOrders.filter((o) =>
+        o.id.toLowerCase().includes(receiptSearch.trim().toLowerCase()),
+      )
+    : savedOrders;
+
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
       {printOrder && (
@@ -160,19 +167,47 @@ export default function OrdersPage() {
       </div>
 
       <div className="p-6 max-w-3xl">
-        <p className="text-sm text-gray-400 mb-6">
+        <p className="text-sm text-gray-400 mb-4">
           Orders saved from billing. Checkout when ready.
         </p>
 
-        {savedOrders.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-4 flex items-center gap-2 flex-wrap">
+          <span className="text-sm font-semibold text-gray-700">Receipt #:</span>
+          <input
+            type="text"
+            value={receiptSearch}
+            onChange={(e) => setReceiptSearch(e.target.value)}
+            placeholder="Search saved order by receipt number"
+            className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 min-w-[220px] flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          />
+          {receiptSearch.trim() && (
+            <button
+              type="button"
+              onClick={() => setReceiptSearch("")}
+              className="px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+
+        {filteredOrders.length === 0 ? (
           <div className="text-center py-20 text-gray-400 flex flex-col items-center gap-3">
             <span className="text-5xl">📭</span>
-            <p className="text-base">No saved orders yet.</p>
-            <p className="text-sm">Use "Save Order" in the billing panel.</p>
+            <p className="text-base">
+              {receiptSearch.trim()
+                ? "No saved orders match that receipt number."
+                : "No saved orders yet."}
+            </p>
+            <p className="text-sm">
+              {receiptSearch.trim()
+                ? "Try a different receipt number or clear search."
+                : 'Use "Save Order" in the billing panel.'}
+            </p>
           </div>
         ) : (
           <div className="space-y-4">
-            {savedOrders.map((order) => (
+            {filteredOrders.map((order) => (
               <div
                 key={order.id}
                 className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
