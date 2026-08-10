@@ -68,6 +68,9 @@ export default function OrdersPage() {
   };
 
   const handleDelete = async (orderId: string) => {
+    if (!confirm(`Delete saved order ${orderId}? This cannot be undone.`)) {
+      return;
+    }
     try {
       await fetch(`/api/orders?orderCode=${encodeURIComponent(orderId)}`, {
         method: "DELETE",

@@ -114,6 +114,13 @@ export default function HistoryPage() {
   };
 
   const handleDelete = async (orderCode: string) => {
+    if (
+      !confirm(
+        `Remove order ${orderCode} from history? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
     try {
       const res = await fetch(`/api/orders?orderCode=${encodeURIComponent(orderCode)}`, { method: "DELETE" });
       if (!res.ok) throw new Error("Delete failed");
