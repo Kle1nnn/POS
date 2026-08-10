@@ -101,9 +101,14 @@ export default function OrdersPage() {
   };
 
   const filteredOrders = receiptSearch.trim()
-    ? savedOrders.filter((o) =>
-        o.id.toLowerCase().includes(receiptSearch.trim().toLowerCase()),
-      )
+    ? savedOrders.filter((o) => {
+        const q = receiptSearch.trim().toLowerCase();
+        return (
+          o.id.toLowerCase().includes(q) ||
+          (o.customerName ?? "").toLowerCase().includes(q) ||
+          (o.customerPhone ?? "").toLowerCase().includes(q)
+        );
+      })
     : savedOrders;
 
   return (
@@ -176,12 +181,12 @@ export default function OrdersPage() {
         </p>
 
         <div className="bg-white rounded-2xl border border-gray-100 p-3 mb-4 flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-gray-700">Receipt #:</span>
+          <span className="text-sm font-semibold text-gray-700">Search:</span>
           <input
             type="text"
             value={receiptSearch}
             onChange={(e) => setReceiptSearch(e.target.value)}
-            placeholder="Search saved order by receipt number"
+            placeholder="Receipt #, customer name, or phone"
             className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 min-w-[220px] flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
           />
           {receiptSearch.trim() && (
@@ -200,12 +205,12 @@ export default function OrdersPage() {
             <span className="text-5xl">📭</span>
             <p className="text-base">
               {receiptSearch.trim()
-                ? "No saved orders match that receipt number."
+                ? "No saved orders match that search."
                 : "No saved orders yet."}
             </p>
             <p className="text-sm">
               {receiptSearch.trim()
-                ? "Try a different receipt number or clear search."
+                ? "Try receipt #, customer name, or phone."
                 : 'Use "Save Order" in the billing panel.'}
             </p>
           </div>

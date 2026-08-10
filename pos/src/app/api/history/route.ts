@@ -14,6 +14,7 @@ export async function GET(req: NextRequest) {
     const receiptParam =
       req.nextUrl.searchParams.get("receipt")?.trim() ||
       req.nextUrl.searchParams.get("orderCode")?.trim() ||
+      req.nextUrl.searchParams.get("q")?.trim() ||
       "";
     client = await pgPool.connect();
     await ensureInstructionsColumn(client);
@@ -23,7 +24,14 @@ export async function GET(req: NextRequest) {
 
     if (receiptParam) {
       params.push(`%${receiptParam}%`);
-      whereParts.push(`LOWER(o.order_code) LIKE LOWER($${params.length})`);
+      const p = `$${params.length}`;
+      whereParts.push(
+        `(
+          LOWER(o.order_code) LIKE LOWER(${p})
+          OR LOWER(COALESCE(o.customer_name, '')) LIKE LOWER(${p})
+          OR COALESCE(o.customer_phone, '') LIKE ${p}
+        )`,
+      );
     } else if (businessDate) {
       params.push(businessDate);
       whereParts.push(`o.business_date = $${params.length}::date`);

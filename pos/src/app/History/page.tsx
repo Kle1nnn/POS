@@ -346,9 +346,7 @@ export default function HistoryPage() {
             </span>
           </div>
           <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-gray-100">
-            <span className="text-sm font-semibold text-gray-700">
-              Receipt #:
-            </span>
+            <span className="text-sm font-semibold text-gray-700">Search:</span>
             <input
               type="text"
               value={receiptSearch}
@@ -356,7 +354,7 @@ export default function HistoryPage() {
               onKeyDown={(e) => {
                 if (e.key === "Enter") void handleReceiptSearch();
               }}
-              placeholder="Search by receipt / order number"
+              placeholder="Receipt #, customer name, or phone"
               className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 min-w-[220px] flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
             />
             <button
@@ -411,12 +409,12 @@ export default function HistoryPage() {
             <span className="text-5xl">📜</span>
             <p className="text-base">
               {searchActive
-                ? "No orders found for that receipt number."
+                ? "No orders found for that search."
                 : "No completed orders for this date."}
             </p>
             <p className="text-sm">
               {searchActive
-                ? "Try a different receipt number or clear search."
+                ? "Try receipt #, customer name, or phone."
                 : "Checkout a saved order to see it here."}
             </p>
           </div>
@@ -424,7 +422,7 @@ export default function HistoryPage() {
           <div className="space-y-4">
             {searchActive && (
               <p className="text-sm text-gray-500">
-                Showing results for receipt &quot;{receiptSearch.trim()}&quot;
+                Showing results for &quot;{receiptSearch.trim()}&quot;
               </p>
             )}
             {orders.map((order) => (
