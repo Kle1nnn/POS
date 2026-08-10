@@ -61,6 +61,7 @@ export default function Billing() {
   const [pendingCustomer, setPendingCustomer] = useState<Customer>({ name: "", phone: "" });
   const [pendingOrderType, setPendingOrderType] = useState<OrderType>("Delivery");
   const [pendingTableNumber, setPendingTableNumber] = useState<number | null>(null);
+  const [pendingPlacedAt, setPendingPlacedAt] = useState<string | null>(null);
   const [now, setNow] = useState(() => new Date());
   const minuteIntervalRef = useRef<number | null>(null);
 
@@ -177,10 +178,29 @@ export default function Billing() {
     } catch { } finally { setIsSavingCustomer(false); }
   };
 
-  const openPrintModal = (orderId: string, items: CartItem[], total: number, notes: string, instructionsValue: string, isPaid: boolean, customer: Customer, type: OrderType, tableNum: number | null) => {
-    setPendingOrderId(orderId); setPendingItems([...items]); setPendingTotal(total);
-    setPendingNotes(notes); setPendingInstructions(instructionsValue); setPendingIsPaid(isPaid); setPendingCustomer(customer);
-    setPendingOrderType(type); setPendingTableNumber(tableNum); setPrintModalOpen(true);
+  const openPrintModal = (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes: string,
+    instructionsValue: string,
+    isPaid: boolean,
+    customer: Customer,
+    type: OrderType,
+    tableNum: number | null,
+    placedAt?: string | null,
+  ) => {
+    setPendingOrderId(orderId);
+    setPendingItems([...items]);
+    setPendingTotal(total);
+    setPendingNotes(notes);
+    setPendingInstructions(instructionsValue);
+    setPendingIsPaid(isPaid);
+    setPendingCustomer(customer);
+    setPendingOrderType(type);
+    setPendingTableNumber(tableNum);
+    setPendingPlacedAt(placedAt ?? new Date().toISOString());
+    setPrintModalOpen(true);
   };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
@@ -234,6 +254,7 @@ export default function Billing() {
     isPaid: boolean,
     destination: "/Orders" | "/History",
   ) => {
+    const placedAt = editingOrder?.createdAt ?? new Date().toISOString();
     setEditingOrder(null);
     resetForm();
     openPrintModal(
@@ -246,6 +267,7 @@ export default function Billing() {
       cust,
       orderType,
       tableNumber,
+      placedAt,
     );
     router.push(destination);
   };
@@ -353,7 +375,7 @@ export default function Billing() {
     const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
     const cust = { name: finalCustomerName, phone: customerPhone };
     resetForm(); showToast("Order saved!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber);
+    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber, createdAtClient);
   };
 
   const handleCheckout = async () => {
@@ -373,7 +395,7 @@ export default function Billing() {
     const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
     const cust = { name: finalCustomerName, phone: customerPhone };
     resetForm(); showToast("Order checked out!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, true, cust, orderType, tableNumber);
+    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, true, cust, orderType, tableNumber, createdAtClient);
   };
 
   const currentDate = `${String(now.getDate()).padStart(2,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${now.getFullYear()}`;
@@ -381,7 +403,7 @@ export default function Billing() {
 
   return (
     <aside className="w-[340px] flex-shrink-0 h-screen bg-white flex flex-col border-r border-gray-200 shadow-sm">
-      <PrintModal isOpen={printModalOpen} onClose={() => setPrintModalOpen(false)} cartItems={pendingItems} totalPrice={pendingTotal} notes={pendingNotes} instructions={pendingInstructions} orderId={pendingOrderId} isPaid={pendingIsPaid} customer={pendingCustomer} orderType={pendingOrderType} tableNumber={pendingTableNumber} />
+      <PrintModal isOpen={printModalOpen} onClose={() => setPrintModalOpen(false)} cartItems={pendingItems} totalPrice={pendingTotal} notes={pendingNotes} instructions={pendingInstructions} orderId={pendingOrderId} isPaid={pendingIsPaid} customer={pendingCustomer} orderType={pendingOrderType} tableNumber={pendingTableNumber} placedAt={pendingPlacedAt} />
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">{toast}</div>

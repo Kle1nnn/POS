@@ -15,6 +15,8 @@ interface PrintModalProps {
   customer?: { name: string; phone: string };
   orderType?: string;
   tableNumber?: number | null;
+  /** Original order placed time — used on the receipt instead of print time */
+  placedAt?: string | null;
 }
 
 export default function PrintModal({
@@ -29,6 +31,7 @@ export default function PrintModal({
   customer,
   orderType,
   tableNumber,
+  placedAt = null,
 }: PrintModalProps) {
   const hasTriggered = useRef(false);
 
@@ -52,6 +55,7 @@ export default function PrintModal({
           customer,
           orderType,
           tableNumber,
+          placedAt,
         );
       } catch (e) {
         console.error("Print failed", e);
@@ -72,6 +76,7 @@ export default function PrintModal({
     customer,
     orderType,
     tableNumber,
+    placedAt,
     onClose,
   ]);
 

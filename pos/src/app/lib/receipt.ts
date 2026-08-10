@@ -78,6 +78,7 @@ export function buildReceiptHTML(
   tableNumber?: number | null,
   variant: ReceiptVariant = "customer",
   settings: ReceiptSettings = DEFAULT_RECEIPT_SETTINGS,
+  placedAt?: string | Date | null,
 ): string {
   const isKitchen = variant === "bbq-kitchen";
   const displayItems = isKitchen ? filterBarBqItems(cartItems) : cartItems;
@@ -87,13 +88,14 @@ export function buildReceiptHTML(
     ? receiptImageSrc(settings.paymentImage)
     : "";
 
-  const now = new Date();
-  const dateStr = now.toLocaleDateString("en-PK", {
+  const parsed = placedAt != null ? new Date(placedAt) : new Date();
+  const when = Number.isNaN(parsed.getTime()) ? new Date() : parsed;
+  const dateStr = when.toLocaleDateString("en-PK", {
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
   });
-  const timeStr = now.toLocaleTimeString("en-PK", {
+  const timeStr = when.toLocaleTimeString("en-PK", {
     hour: "2-digit",
     minute: "2-digit",
     hour12: true,
@@ -402,6 +404,7 @@ export async function printOrderReceipts(
   customer?: { name: string; phone: string },
   orderType?: string,
   tableNumber?: number | null,
+  placedAt?: string | Date | null,
 ): Promise<void> {
   const settings = await fetchReceiptSettings();
   const common = [
@@ -416,11 +419,21 @@ export async function printOrderReceipts(
     tableNumber,
   ] as const;
 
-  const customerHtml = buildReceiptHTML(...common, "customer", settings);
+  const customerHtml = buildReceiptHTML(
+    ...common,
+    "customer",
+    settings,
+    placedAt,
+  );
   await printHtml(customerHtml);
 
   if (hasBarBqItems(cartItems)) {
-    const kitchenHtml = buildReceiptHTML(...common, "bbq-kitchen", settings);
+    const kitchenHtml = buildReceiptHTML(
+      ...common,
+      "bbq-kitchen",
+      settings,
+      placedAt,
+    );
     await printHtml(kitchenHtml);
   }
 }

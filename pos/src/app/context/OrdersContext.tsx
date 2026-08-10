@@ -36,6 +36,7 @@ export type EditingOrderSnapshot = {
   customerPhone?: string;
   orderType?: string;
   tableNumber?: number | null;
+  createdAt?: string;
 };
 
 type OrdersContextType = {
@@ -185,7 +186,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
       customerPhone,
       orderType,
       tableNumber,
-      createdAt: new Date().toLocaleString(),
+      createdAt: new Date().toISOString(),
       status: "saved",
     };
     setOrders((prev) => [newOrder, ...prev]);
@@ -196,7 +197,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     setOrders((prev) =>
       prev.map((o) =>
         o.id === orderId
-          ? { ...o, status: "checkedout", checkedOutAt: new Date().toLocaleString() }
+          ? { ...o, status: "checkedout", checkedOutAt: new Date().toISOString() }
           : o,
       ),
     );

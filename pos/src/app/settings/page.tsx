@@ -69,6 +69,7 @@ type DateOrderRow = {
   orderType: string;
   tableNumber: number | null;
   soldAt: string;
+  createdAt?: string;
   itemCount: number;
   items?: Array<{
     id?: string;
@@ -118,6 +119,7 @@ type LedgerEntry = {
   tableNumber: number | null;
   businessDate: string;
   soldAt: string;
+  createdAt?: string;
   itemCount: number;
   items?: DateOrderRow["items"];
 };
@@ -319,6 +321,7 @@ export default function SettingsPage() {
     customer?: { name: string; phone: string };
     orderType?: string;
     tableNumber?: number | null;
+    placedAt?: string | null;
   } | null>(null);
 
   // Customer ledger
@@ -631,6 +634,10 @@ export default function SettingsPage() {
       },
       orderType: order.orderType,
       tableNumber: order.tableNumber,
+      placedAt:
+        ("createdAt" in order ? order.createdAt : null) ||
+        order.soldAt ||
+        null,
     });
     setPrintModalOpen(true);
   };
@@ -1483,6 +1490,7 @@ export default function SettingsPage() {
           customer={printOrder.customer}
           orderType={printOrder.orderType}
           tableNumber={printOrder.tableNumber}
+          placedAt={printOrder.placedAt}
         />
       )}
 

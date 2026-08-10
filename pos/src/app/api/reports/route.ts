@@ -58,6 +58,7 @@ export async function GET(req: NextRequest) {
           o.customer_phone,
           o.order_type,
           o.table_number,
+          o.created_at,
           COALESCE(o.checked_out_at, o.created_at) AS sold_at,
           COALESCE(
             (
@@ -148,6 +149,7 @@ export async function GET(req: NextRequest) {
             customerPhone: (r.customer_phone as string) || "",
             orderType: (r.order_type as string) || "Delivery",
             tableNumber: r.table_number as number | null,
+            createdAt: r.created_at as string,
             soldAt: r.sold_at as string,
             itemCount: Number(r.item_count),
             items: Array.isArray(r.items) ? r.items : [],

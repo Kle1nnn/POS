@@ -25,6 +25,7 @@ export default function OrdersPage() {
     customer?: { name: string; phone: string };
     orderType?: string;
     tableNumber?: number | null;
+    placedAt?: string | null;
   } | null>(null);
 
   const formatLocalDateTime = (value?: string | null) => {
@@ -47,6 +48,7 @@ export default function OrdersPage() {
         : undefined,
       orderType: order.orderType,
       tableNumber: order.tableNumber,
+      placedAt: order.createdAt ?? null,
     });
     setPrintModalOpen(true);
   };
@@ -64,6 +66,7 @@ export default function OrdersPage() {
       customerPhone: order.customerPhone,
       orderType: order.orderType,
       tableNumber: order.tableNumber,
+      createdAt: order.createdAt,
     });
     router.push("/");
   };
@@ -118,6 +121,7 @@ export default function OrdersPage() {
           customer={printOrder.customer}
           orderType={printOrder.orderType}
           tableNumber={printOrder.tableNumber}
+          placedAt={printOrder.placedAt}
         />
       )}
 

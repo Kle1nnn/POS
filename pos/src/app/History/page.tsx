@@ -37,6 +37,7 @@ export default function HistoryPage() {
     customer?: { name: string; phone: string };
     orderType?: string;
     tableNumber?: number | null;
+    placedAt?: string | null;
   } | null>(null);
 
   const formatLocalDateTime = (value?: string | null) => {
@@ -66,6 +67,7 @@ export default function HistoryPage() {
         : undefined,
       orderType: order.orderType,
       tableNumber: order.tableNumber,
+      placedAt: order.createdAt ?? order.checkedOutAt ?? null,
     });
     setPrintModalOpen(true);
   };
@@ -202,6 +204,7 @@ export default function HistoryPage() {
       customerPhone: order.customerPhone ?? undefined,
       orderType: order.orderType ?? undefined,
       tableNumber: order.tableNumber ?? null,
+      createdAt: order.createdAt ?? undefined,
     });
     router.push("/");
   };
@@ -251,6 +254,7 @@ export default function HistoryPage() {
           customer={printOrder.customer}
           orderType={printOrder.orderType}
           tableNumber={printOrder.tableNumber}
+          placedAt={printOrder.placedAt}
         />
       )}
 
