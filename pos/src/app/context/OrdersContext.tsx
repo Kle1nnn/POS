@@ -73,36 +73,49 @@ type OrdersContextType = {
 
 const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
 
-let _tbtCounter = 0;
-let _tbtSeeded = false;
+let _receiptCounter = 0;
+let _receiptPrefix = "TBT";
+let _receiptSeeded = false;
 
-function seedCounter(orders: { id: string }[]) {
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function seedCounter(orders: { id: string }[], prefix = _receiptPrefix) {
+  const re = new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`, "i");
   let max = 0;
   for (const o of orders) {
-    const match = o.id.match(/^TBT-(\d+)$/);
+    const match = o.id.match(re);
     if (match) {
       const n = parseInt(match[1], 10);
       if (n > max) max = n;
     }
   }
-  if (max > _tbtCounter) _tbtCounter = max;
+  if (max > _receiptCounter) _receiptCounter = max;
 }
 
-async function seedCounterFromDb() {
-  if (_tbtSeeded) return;
-  _tbtSeeded = true;
+async function seedCounterFromDb(force = false) {
+  if (_receiptSeeded && !force) return;
+  _receiptSeeded = true;
   try {
     const res = await fetch("/api/orders/lastid");
     if (res.ok) {
       const data = await res.json();
-      if (data.lastNum > _tbtCounter) _tbtCounter = data.lastNum;
+      if (typeof data.prefix === "string" && data.prefix.trim()) {
+        _receiptPrefix = String(data.prefix).trim().toUpperCase();
+      }
+      if (typeof data.lastNum === "number" && data.lastNum > _receiptCounter) {
+        _receiptCounter = data.lastNum;
+      }
     }
-  } catch { /* ignore */ }
+  } catch {
+    /* ignore */
+  }
 }
 
-function nextTBTId(): string {
-  _tbtCounter += 1;
-  return `TBT-${_tbtCounter}`;
+function nextReceiptId(): string {
+  _receiptCounter += 1;
+  return `${_receiptPrefix}-${_receiptCounter}`;
 }
 
 export function OrdersProvider({ children }: { children: ReactNode }) {
@@ -150,7 +163,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
         orders: Parameters<typeof mapApiOrders>[0];
       };
       const mapped = mapApiOrders(data.orders ?? []);
-      seedCounter(mapped);
+      seedCounter(mapped, _receiptPrefix);
       setOrders(mapped);
     } catch (e) {
       console.error("Failed to reload orders from database", e);
@@ -162,7 +175,23 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
       await seedCounterFromDb();
       await reloadSavedOrders();
     };
-    loadFromDb();
+    void loadFromDb();
+
+    const onReceiptNumberChange = () => {
+      _receiptSeeded = false;
+      _receiptCounter = 0;
+      void seedCounterFromDb(true).then(() => reloadSavedOrders());
+    };
+    window.addEventListener(
+      "receipt-number-settings-changed",
+      onReceiptNumberChange,
+    );
+    return () => {
+      window.removeEventListener(
+        "receipt-number-settings-changed",
+        onReceiptNumberChange,
+      );
+    };
   }, []);
 
   const saveOrder = (
@@ -175,7 +204,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     orderType?: string,
     tableNumber?: number | null,
   ): string => {
-    const id = nextTBTId();
+    const id = nextReceiptId();
     const newOrder: Order = {
       id,
       items,

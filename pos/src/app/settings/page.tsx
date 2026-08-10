@@ -1241,11 +1241,50 @@ export default function SettingsPage() {
       if (!res.ok) throw new Error(data.error ?? "Failed to save receipt settings");
       setReceiptSettings(data.settings ?? receiptSettings);
       clearReceiptSettingsCache();
+      window.dispatchEvent(new Event("receipt-number-settings-changed"));
       showToast("Receipt settings saved");
     } catch (error) {
       console.error("Failed to save receipt settings", error);
       showToast(
         error instanceof Error ? error.message : "Save receipt settings failed",
+      );
+    } finally {
+      setIsSavingReceipt(false);
+    }
+  };
+
+  const saveReceiptNumberSettings = async () => {
+    const prefix = receiptSettings.receiptPrefix?.trim() || "TBT";
+    const nextNum = Number(receiptSettings.receiptNextNumber);
+    if (!Number.isFinite(nextNum) || nextNum < 1) {
+      showToast("Next receipt number must be 1 or higher");
+      return;
+    }
+    setIsSavingReceipt(true);
+    try {
+      const res = await fetch("/api/receipt-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...receiptSettings,
+          receiptPrefix: prefix,
+          receiptNextNumber: Math.floor(nextNum),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to save receipt number settings");
+      }
+      setReceiptSettings(data.settings ?? receiptSettings);
+      clearReceiptSettingsCache();
+      window.dispatchEvent(new Event("receipt-number-settings-changed"));
+      showToast("Receipt number settings saved");
+    } catch (error) {
+      console.error("Failed to save receipt number settings", error);
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Save receipt number settings failed",
       );
     } finally {
       setIsSavingReceipt(false);
@@ -2644,6 +2683,86 @@ export default function SettingsPage() {
                       e.target.value = "";
                     }}
                   />
+                </div>
+
+                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
+                  <div>
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Receipt number settings
+                    </p>
+                    <p className="text-sm text-gray-500 mt-1">
+                      Set the prefix and next number used for new order receipts
+                      (example: TBT-101).
+                    </p>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Prefix
+                      </label>
+                      <input
+                        value={receiptSettings.receiptPrefix ?? "TBT"}
+                        onChange={(e) =>
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            receiptPrefix: e.target.value
+                              .toUpperCase()
+                              .replace(/[^A-Z0-9]/g, "")
+                              .slice(0, 12),
+                          }))
+                        }
+                        placeholder="TBT"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Next number
+                      </label>
+                      <input
+                        type="number"
+                        min={1}
+                        step={1}
+                        value={receiptSettings.receiptNextNumber ?? 1}
+                        onChange={(e) =>
+                          setReceiptSettings((s) => ({
+                            ...s,
+                            receiptNextNumber: Number(e.target.value || 1),
+                          }))
+                        }
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Preview
+                      </label>
+                      <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-900">
+                        {(receiptSettings.receiptPrefix || "TBT").toUpperCase()}
+                        -
+                        {Math.max(
+                          1,
+                          Math.floor(Number(receiptSettings.receiptNextNumber) || 1),
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={() => void saveReceiptNumberSettings()}
+                      disabled={
+                        isSavingReceipt ||
+                        isUploadingReceiptLogo ||
+                        isUploadingPaymentImage
+                      }
+                      className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50"
+                    >
+                      {isSavingReceipt
+                        ? "Saving..."
+                        : "Save Receipt Number Settings"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="flex justify-end">

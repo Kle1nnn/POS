@@ -1,11 +1,13 @@
 import { pgPool } from "./db";
 import {
   DEFAULT_RECEIPT_SETTINGS,
+  normalizeReceiptPrefix,
   type ReceiptSettings,
 } from "./receipt-settings-shared";
 
 export type { ReceiptSettings };
-export { DEFAULT_RECEIPT_SETTINGS };
+export { DEFAULT_RECEIPT_SETTINGS, normalizeReceiptPrefix };
+export { formatReceiptCode } from "./receipt-settings-shared";
 
 let ready: Promise<void> | null = null;
 
@@ -27,6 +29,14 @@ export function ensureReceiptSettingsTable(): Promise<void> {
             updated_at     timestamptz NOT NULL DEFAULT NOW()
           );
         `);
+        await client.query(`
+          ALTER TABLE receipt_settings
+            ADD COLUMN IF NOT EXISTS receipt_prefix text NOT NULL DEFAULT 'TBT';
+        `);
+        await client.query(`
+          ALTER TABLE receipt_settings
+            ADD COLUMN IF NOT EXISTS receipt_next_number integer NOT NULL DEFAULT 1;
+        `);
 
         const existing = await client.query(
           `SELECT id FROM receipt_settings WHERE id = 1`,
@@ -35,8 +45,9 @@ export function ensureReceiptSettingsTable(): Promise<void> {
           await client.query(
             `INSERT INTO receipt_settings
               (id, store_name, store_address, store_phones, logo_image,
-               payment_title, payment_image, payment_line)
-             VALUES (1, $1, $2, $3, $4, $5, $6, $7)`,
+               payment_title, payment_image, payment_line,
+               receipt_prefix, receipt_next_number)
+             VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
             [
               DEFAULT_RECEIPT_SETTINGS.storeName,
               DEFAULT_RECEIPT_SETTINGS.storeAddress,
@@ -45,6 +56,8 @@ export function ensureReceiptSettingsTable(): Promise<void> {
               DEFAULT_RECEIPT_SETTINGS.paymentTitle,
               DEFAULT_RECEIPT_SETTINGS.paymentImage,
               DEFAULT_RECEIPT_SETTINGS.paymentLine,
+              DEFAULT_RECEIPT_SETTINGS.receiptPrefix,
+              DEFAULT_RECEIPT_SETTINGS.receiptNextNumber,
             ],
           );
         }
@@ -64,7 +77,10 @@ export function mapReceiptSettings(row: {
   payment_title: string;
   payment_image: string;
   payment_line: string;
+  receipt_prefix?: string | null;
+  receipt_next_number?: number | null;
 }): ReceiptSettings {
+  const nextNum = Number(row.receipt_next_number);
   return {
     storeName: row.store_name,
     storeAddress: row.store_address,
@@ -73,6 +89,13 @@ export function mapReceiptSettings(row: {
     paymentTitle: row.payment_title,
     paymentImage: row.payment_image,
     paymentLine: row.payment_line,
+    receiptPrefix: normalizeReceiptPrefix(
+      row.receipt_prefix || DEFAULT_RECEIPT_SETTINGS.receiptPrefix,
+    ),
+    receiptNextNumber:
+      Number.isFinite(nextNum) && nextNum >= 1
+        ? Math.floor(nextNum)
+        : DEFAULT_RECEIPT_SETTINGS.receiptNextNumber,
   };
 }
 
@@ -82,7 +105,8 @@ export async function loadReceiptSettings(): Promise<ReceiptSettings> {
   try {
     const result = await client.query(
       `SELECT store_name, store_address, store_phones, logo_image,
-              payment_title, payment_image, payment_line
+              payment_title, payment_image, payment_line,
+              receipt_prefix, receipt_next_number
        FROM receipt_settings WHERE id = 1`,
     );
     if (!result.rowCount) return { ...DEFAULT_RECEIPT_SETTINGS };
