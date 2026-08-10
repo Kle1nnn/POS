@@ -122,6 +122,25 @@ type LedgerEntry = {
   items?: DateOrderRow["items"];
 };
 
+type AutoBackupSettings = {
+  contactsEnabled: boolean;
+  fullEnabled: boolean;
+  contactsTime: string;
+  fullTime: string;
+  lastContactsDate: string | null;
+  lastFullDate: string | null;
+  lastContactsAt: string | null;
+  lastFullAt: string | null;
+  lastContactsFile: string | null;
+  lastFullFile: string | null;
+  lastError: string | null;
+};
+
+type AutoBackupRecent = {
+  name: string;
+  type: "contacts" | "full";
+};
+
 const DEFAULT_IMAGE = "deals.png";
 
 const BUILTIN_CATEGORIES = [
@@ -197,6 +216,29 @@ export default function SettingsPage() {
   const [isRestoringContacts, setIsRestoringContacts] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const contactsRestoreInputRef = useRef<HTMLInputElement>(null);
+
+  // Auto backup
+  const [autoBackup, setAutoBackup] = useState<AutoBackupSettings>({
+    contactsEnabled: false,
+    fullEnabled: false,
+    contactsTime: "22:00",
+    fullTime: "23:00",
+    lastContactsDate: null,
+    lastFullDate: null,
+    lastContactsAt: null,
+    lastFullAt: null,
+    lastContactsFile: null,
+    lastFullFile: null,
+    lastError: null,
+  });
+  const [autoBackupFolder, setAutoBackupFolder] = useState("");
+  const [autoBackupRecent, setAutoBackupRecent] = useState<AutoBackupRecent[]>(
+    [],
+  );
+  const [autoBackupLoading, setAutoBackupLoading] = useState(false);
+  const [isSavingAutoBackup, setIsSavingAutoBackup] = useState(false);
+  const [isRunningAutoContacts, setIsRunningAutoContacts] = useState(false);
+  const [isRunningAutoFull, setIsRunningAutoFull] = useState(false);
 
   // Catalog
   const [categories, setCategories] = useState<CustomCategory[]>([]);
@@ -462,6 +504,84 @@ export default function SettingsPage() {
   useEffect(() => {
     if (tab === "ledger") void loadLedger();
   }, [tab, loadLedger]);
+
+  const loadAutoBackup = useCallback(async () => {
+    setAutoBackupLoading(true);
+    try {
+      const res = await fetch("/api/backup/auto");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load auto backup");
+      if (data.settings) setAutoBackup(data.settings);
+      setAutoBackupFolder(data.folder ?? "");
+      setAutoBackupRecent(data.recent ?? []);
+    } catch (error) {
+      console.error("Failed to load auto backup settings", error);
+      showToast("Failed to load auto backup settings");
+    } finally {
+      setAutoBackupLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "contacts" || tab === "backup") void loadAutoBackup();
+  }, [tab, loadAutoBackup]);
+
+  const saveAutoBackupSettings = async (patch: {
+    contactsEnabled?: boolean;
+    fullEnabled?: boolean;
+    contactsTime?: string;
+    fullTime?: string;
+  }) => {
+    setIsSavingAutoBackup(true);
+    try {
+      const res = await fetch("/api/backup/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(patch),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to save auto backup");
+      if (data.settings) setAutoBackup(data.settings);
+      showToast("Auto backup settings saved");
+      await loadAutoBackup();
+    } catch (error) {
+      console.error("Failed to save auto backup", error);
+      showToast(
+        error instanceof Error ? error.message : "Save auto backup failed",
+      );
+    } finally {
+      setIsSavingAutoBackup(false);
+    }
+  };
+
+  const runAutoBackupNow = async (kind: "contacts" | "full") => {
+    if (kind === "contacts") setIsRunningAutoContacts(true);
+    else setIsRunningAutoFull(true);
+    try {
+      const res = await fetch("/api/backup/auto", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ run: kind }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Auto backup failed");
+      if (data.settings) setAutoBackup(data.settings);
+      showToast(
+        kind === "contacts"
+          ? "Contacts auto backup saved to folder"
+          : "Full auto backup saved to folder",
+      );
+      await loadAutoBackup();
+    } catch (error) {
+      console.error("Failed to run auto backup", error);
+      showToast(
+        error instanceof Error ? error.message : "Auto backup failed",
+      );
+    } finally {
+      if (kind === "contacts") setIsRunningAutoContacts(false);
+      else setIsRunningAutoFull(false);
+    }
+  };
 
   const loadReceiptSettings = useCallback(async () => {
     setReceiptLoading(true);
@@ -1460,6 +1580,89 @@ export default function SettingsPage() {
               </div>
             </div>
 
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Auto backup contacts
+              </p>
+              <p className="text-sm text-gray-500 mb-3">
+                Automatically save contacts to the server backups folder every
+                day at the time you set. Keep the POS app running.
+              </p>
+              {autoBackupLoading ? (
+                <p className="text-sm text-gray-500">Loading auto backup...</p>
+              ) : (
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-800 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={autoBackup.contactsEnabled}
+                      onChange={(e) =>
+                        setAutoBackup((prev) => ({
+                          ...prev,
+                          contactsEnabled: e.target.checked,
+                        }))
+                      }
+                      className="rounded border-gray-300"
+                    />
+                    Enable daily contacts auto backup
+                  </label>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Time
+                      </label>
+                      <input
+                        type="time"
+                        value={autoBackup.contactsTime}
+                        onChange={(e) =>
+                          setAutoBackup((prev) => ({
+                            ...prev,
+                            contactsTime: e.target.value,
+                          }))
+                        }
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveAutoBackupSettings({
+                          contactsEnabled: autoBackup.contactsEnabled,
+                          contactsTime: autoBackup.contactsTime,
+                        })
+                      }
+                      disabled={isSavingAutoBackup}
+                      className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {isSavingAutoBackup ? "Saving..." : "Save Schedule"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAutoBackupNow("contacts")}
+                      disabled={isRunningAutoContacts}
+                      className="px-4 py-2 rounded-lg bg-green-50 text-green-900 text-sm font-semibold hover:bg-green-100 disabled:opacity-50"
+                    >
+                      {isRunningAutoContacts ? "Running..." : "Run Now"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Last auto:{" "}
+                    {autoBackup.lastContactsAt
+                      ? new Date(autoBackup.lastContactsAt).toLocaleString()
+                      : "Never"}
+                    {autoBackup.lastContactsFile
+                      ? ` · ${autoBackup.lastContactsFile}`
+                      : ""}
+                  </p>
+                  {autoBackupFolder && (
+                    <p className="text-xs text-gray-400 break-all">
+                      Folder: {autoBackupFolder}
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+
             <p className="text-sm text-gray-500 mb-4">
               Add, edit, or remove saved customer contacts. Changes are only saved
               when you click Save Contact.
@@ -2032,50 +2235,160 @@ export default function SettingsPage() {
         )}
 
         {tab === "backup" && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-              Full data backup &amp; restore
-            </p>
-            <p className="text-sm text-gray-500 mb-4">
-              Download a full backup of orders, contacts, and sales data, or
-              restore from a previously saved backup file. This is separate from
-              contacts-only backup.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                onClick={backupAllData}
-                disabled={
-                  isBackingUp ||
-                  isRestoring ||
-                  isBackingUpContacts ||
-                  isRestoringContacts
-                }
-                className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
-              >
-                {isBackingUp ? "Backing up..." : "Backup All Data"}
-              </button>
-              <button
-                onClick={() => restoreInputRef.current?.click()}
-                disabled={
-                  isBackingUp ||
-                  isRestoring ||
-                  isBackingUpContacts ||
-                  isRestoringContacts
-                }
-                className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
-              >
-                {isRestoring ? "Restoring..." : "Restore from Backup"}
-              </button>
-              <input
-                ref={restoreInputRef}
-                type="file"
-                accept="application/json,.json"
-                className="hidden"
-                onChange={(e) => {
-                  const file = e.target.files?.[0];
-                  if (file) void restoreFromBackup(file);
-                }}
-              />
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Full data backup &amp; restore
+              </p>
+              <p className="text-sm text-gray-500 mb-4">
+                Download a full backup of orders, contacts, and sales data, or
+                restore from a previously saved backup file. This is separate from
+                contacts-only backup.
+              </p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  onClick={backupAllData}
+                  disabled={
+                    isBackingUp ||
+                    isRestoring ||
+                    isBackingUpContacts ||
+                    isRestoringContacts
+                  }
+                  className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50 transition-colors"
+                >
+                  {isBackingUp ? "Backing up..." : "Backup All Data"}
+                </button>
+                <button
+                  onClick={() => restoreInputRef.current?.click()}
+                  disabled={
+                    isBackingUp ||
+                    isRestoring ||
+                    isBackingUpContacts ||
+                    isRestoringContacts
+                  }
+                  className="px-4 py-2 rounded-lg bg-amber-50 text-amber-900 text-sm font-semibold hover:bg-amber-100 disabled:opacity-50 transition-colors"
+                >
+                  {isRestoring ? "Restoring..." : "Restore from Backup"}
+                </button>
+                <input
+                  ref={restoreInputRef}
+                  type="file"
+                  accept="application/json,.json"
+                  className="hidden"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (file) void restoreFromBackup(file);
+                  }}
+                />
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Auto full backup
+              </p>
+              <p className="text-sm text-gray-500 mb-3">
+                Automatically save a full backup to the server backups folder
+                every day at the time you set. Keep the POS app running.
+              </p>
+              {autoBackupLoading ? (
+                <p className="text-sm text-gray-500">Loading auto backup...</p>
+              ) : (
+                <div className="space-y-3">
+                  <label className="flex items-center gap-2 text-sm text-gray-800 font-medium">
+                    <input
+                      type="checkbox"
+                      checked={autoBackup.fullEnabled}
+                      onChange={(e) =>
+                        setAutoBackup((prev) => ({
+                          ...prev,
+                          fullEnabled: e.target.checked,
+                        }))
+                      }
+                      className="rounded border-gray-300"
+                    />
+                    Enable daily full auto backup
+                  </label>
+                  <div className="flex flex-wrap items-end gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Time
+                      </label>
+                      <input
+                        type="time"
+                        value={autoBackup.fullTime}
+                        onChange={(e) =>
+                          setAutoBackup((prev) => ({
+                            ...prev,
+                            fullTime: e.target.value,
+                          }))
+                        }
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      />
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveAutoBackupSettings({
+                          fullEnabled: autoBackup.fullEnabled,
+                          fullTime: autoBackup.fullTime,
+                        })
+                      }
+                      disabled={isSavingAutoBackup}
+                      className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                    >
+                      {isSavingAutoBackup ? "Saving..." : "Save Schedule"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void runAutoBackupNow("full")}
+                      disabled={isRunningAutoFull}
+                      className="px-4 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
+                    >
+                      {isRunningAutoFull ? "Running..." : "Run Now"}
+                    </button>
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    Last auto:{" "}
+                    {autoBackup.lastFullAt
+                      ? new Date(autoBackup.lastFullAt).toLocaleString()
+                      : "Never"}
+                    {autoBackup.lastFullFile
+                      ? ` · ${autoBackup.lastFullFile}`
+                      : ""}
+                  </p>
+                  {autoBackup.lastError && (
+                    <p className="text-xs text-red-600">
+                      Last error: {autoBackup.lastError}
+                    </p>
+                  )}
+                  {autoBackupFolder && (
+                    <p className="text-xs text-gray-400 break-all">
+                      Folder: {autoBackupFolder}
+                    </p>
+                  )}
+                  {autoBackupRecent.length > 0 && (
+                    <div className="pt-2 border-t border-gray-100">
+                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                        Recent auto backups
+                      </p>
+                      <ul className="space-y-1 max-h-40 overflow-y-auto">
+                        {autoBackupRecent.map((f) => (
+                          <li
+                            key={f.name}
+                            className="text-xs text-gray-600 flex gap-2"
+                          >
+                            <span className="font-medium text-gray-800 w-16">
+                              {f.type === "contacts" ? "Contacts" : "Full"}
+                            </span>
+                            <span className="truncate">{f.name}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         )}
