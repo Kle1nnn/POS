@@ -9,11 +9,23 @@ async function ensureInstructionsColumn(client: {
   );
 }
 
-// GET /api/customers/ledger?name=Ali&phone=03...
+// GET /api/customers/ledger?name=Ali&phone=03...&year=2026&month=8
 // Returns checked-out orders for a customer (ledger) with running totals.
+// Optional year/month filters to a single calendar month (day-by-day view).
 export async function GET(req: NextRequest) {
   const name = req.nextUrl.searchParams.get("name")?.trim() ?? "";
   const phone = req.nextUrl.searchParams.get("phone")?.trim() ?? "";
+  const yearRaw = req.nextUrl.searchParams.get("year");
+  const monthRaw = req.nextUrl.searchParams.get("month");
+  const year = yearRaw ? Number(yearRaw) : null;
+  const month = monthRaw ? Number(monthRaw) : null;
+  const filterMonth =
+    year != null &&
+    month != null &&
+    Number.isFinite(year) &&
+    Number.isFinite(month) &&
+    month >= 1 &&
+    month <= 12;
 
   if (!name) {
     return NextResponse.json(
@@ -27,7 +39,7 @@ export async function GET(req: NextRequest) {
     client = await pgPool.connect();
     await ensureInstructionsColumn(client);
 
-    const params: string[] = [name];
+    const params: (string | number)[] = [name];
     const whereParts = [
       `o.status = 'checkedout'`,
       `LOWER(COALESCE(NULLIF(TRIM(o.customer_name), ''), 'Walk-In Customer')) = LOWER(TRIM($1))`,
@@ -36,6 +48,16 @@ export async function GET(req: NextRequest) {
       params.push(phone);
       whereParts.push(
         `TRIM(COALESCE(o.customer_phone, '')) = TRIM($${params.length})`,
+      );
+    }
+    if (filterMonth) {
+      params.push(year as number);
+      whereParts.push(
+        `EXTRACT(YEAR FROM o.business_date)::int = $${params.length}`,
+      );
+      params.push(month as number);
+      whereParts.push(
+        `EXTRACT(MONTH FROM o.business_date)::int = $${params.length}`,
       );
     }
 
@@ -115,11 +137,33 @@ export async function GET(req: NextRequest) {
       };
     });
 
+    const dailyMap = new Map<
+      string,
+      { saleDate: string; totalRevenue: number; totalOrders: number; totalItems: number }
+    >();
+    for (const entry of entries) {
+      const key = entry.businessDate;
+      const cur = dailyMap.get(key) ?? {
+        saleDate: key,
+        totalRevenue: 0,
+        totalOrders: 0,
+        totalItems: 0,
+      };
+      cur.totalRevenue += entry.total;
+      cur.totalOrders += 1;
+      cur.totalItems += entry.itemCount;
+      dailyMap.set(key, cur);
+    }
+    const daily = Array.from(dailyMap.values()).sort((a, b) =>
+      a.saleDate.localeCompare(b.saleDate),
+    );
+
     return NextResponse.json(
       {
         customerName: name,
         customerPhone: phone,
         entries,
+        daily,
         totals: {
           totalOrders: entries.length,
           totalRevenue: running,

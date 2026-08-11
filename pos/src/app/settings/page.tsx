@@ -6,6 +6,8 @@ import PrintModal from "../components/PrintModal";
 import { CartItem } from "../context/CartContext";
 import {
   clearReceiptSettingsCache,
+  printReportHtml,
+  escapeReportHtml,
   type ReceiptSettings,
 } from "../lib/receipt";
 import { DEFAULT_RECEIPT_SETTINGS } from "../../lib/receipt-settings-shared";
@@ -193,6 +195,58 @@ function money(n: number) {
   return `Rs ${Number(n || 0).toLocaleString()}`;
 }
 
+function formatSizePrices(sizePrices?: Record<string, number> | null) {
+  if (!sizePrices) return null;
+  const order = ["S", "M", "L"];
+  const parts = order
+    .filter((k) => sizePrices[k] != null)
+    .map((k) => `${k}: ${Number(sizePrices[k]).toLocaleString()}`);
+  if (parts.length === 0) {
+    return Object.entries(sizePrices)
+      .map(([k, v]) => `${k}: ${Number(v).toLocaleString()}`)
+      .join(" · ");
+  }
+  return parts.join(" · ");
+}
+
+function reportPrintShell(title: string, subtitle: string, bodyHtml: string) {
+  return `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>${escapeReportHtml(title)}</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    font-family: Arial, Helvetica, sans-serif;
+    color: #111;
+    margin: 0;
+    padding: 16px 20px;
+    font-size: 12px;
+  }
+  h1 { font-size: 18px; margin: 0 0 4px; }
+  .sub { color: #444; margin: 0 0 14px; font-size: 12px; }
+  .totals { margin: 0 0 14px; }
+  .totals span { display: inline-block; margin-right: 18px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { border-bottom: 1px solid #ccc; padding: 6px 4px; text-align: left; vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; color: #333; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .muted { color: #666; font-size: 11px; }
+  @media print {
+    @page { margin: 12mm; size: A4; }
+    body { padding: 0; }
+  }
+</style>
+</head>
+<body>
+  <h1>${escapeReportHtml(title)}</h1>
+  <p class="sub">${escapeReportHtml(subtitle)}</p>
+  ${bodyHtml}
+</body>
+</html>`;
+}
+
 function monthLabel(year: number, month: number) {
   return new Date(year, month - 1, 1).toLocaleString(undefined, {
     month: "long",
@@ -275,6 +329,9 @@ export default function SettingsPage() {
     image: DEFAULT_IMAGE,
     sku: "",
     stock: "",
+    priceS: "",
+    priceM: "",
+    priceL: "",
   };
   const [newItem, setNewItem] = useState(emptyItemForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -330,7 +387,11 @@ export default function SettingsPage() {
 
   // Customer ledger
   const [ledgerCustomerKey, setLedgerCustomerKey] = useState("");
+  const [ledgerViewMode, setLedgerViewMode] = useState<"all" | "daily">("all");
+  const [ledgerYear, setLedgerYear] = useState(now.getFullYear());
+  const [ledgerMonth, setLedgerMonth] = useState(now.getMonth() + 1);
   const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+  const [ledgerDaily, setLedgerDaily] = useState<DailyRow[]>([]);
   const [ledgerTotals, setLedgerTotals] = useState<ReportTotals>({
     totalRevenue: 0,
     totalOrders: 0,
@@ -473,6 +534,7 @@ export default function SettingsPage() {
   const loadLedger = useCallback(async () => {
     if (!ledgerCustomerKey) {
       setLedgerEntries([]);
+      setLedgerDaily([]);
       setLedgerTotals({ totalRevenue: 0, totalOrders: 0, totalItems: 0 });
       return;
     }
@@ -481,10 +543,15 @@ export default function SettingsPage() {
       const [name, phone = ""] = ledgerCustomerKey.split("\t");
       const params = new URLSearchParams({ name });
       if (phone) params.set("phone", phone);
+      if (ledgerViewMode === "daily") {
+        params.set("year", String(ledgerYear));
+        params.set("month", String(ledgerMonth));
+      }
       const res = await fetch(`/api/customers/ledger?${params.toString()}`);
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load ledger");
       setLedgerEntries(data.entries ?? []);
+      setLedgerDaily(data.daily ?? []);
       setLedgerTotals(
         data.totals ?? { totalRevenue: 0, totalOrders: 0, totalItems: 0 },
       );
@@ -492,10 +559,11 @@ export default function SettingsPage() {
       console.error("Failed to load customer ledger", error);
       showToast("Failed to load customer ledger");
       setLedgerEntries([]);
+      setLedgerDaily([]);
     } finally {
       setLedgerLoading(false);
     }
-  }, [ledgerCustomerKey]);
+  }, [ledgerCustomerKey, ledgerViewMode, ledgerYear, ledgerMonth]);
 
   useEffect(() => {
     loadCustomers();
@@ -732,6 +800,261 @@ export default function SettingsPage() {
       parts.push(item.selectedSauce);
     }
     return parts.length > 0 ? parts.join(" · ") : null;
+  };
+
+  const printCustomerLedger = async () => {
+    if (!ledgerCustomerKey) {
+      showToast("Select a customer first");
+      return;
+    }
+    const [name, phone = ""] = ledgerCustomerKey.split("\t");
+    const periodLabel =
+      ledgerViewMode === "daily"
+        ? monthLabel(ledgerYear, ledgerMonth)
+        : "All time";
+    const title = `Customer Ledger · ${name}`;
+    const subtitle = `${phone ? `Phone: ${phone} · ` : ""}${periodLabel} · Total ${money(ledgerTotals.totalRevenue)} · ${ledgerTotals.totalOrders} orders · ${ledgerTotals.totalItems} items`;
+
+    let body = `
+      <div class="totals">
+        <span><strong>Total spent:</strong> ${escapeReportHtml(money(ledgerTotals.totalRevenue))}</span>
+        <span><strong>Orders:</strong> ${ledgerTotals.totalOrders}</span>
+        <span><strong>Items:</strong> ${ledgerTotals.totalItems}</span>
+      </div>
+    `;
+
+    if (ledgerViewMode === "daily") {
+      body += `
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th class="num">Orders</th>
+              <th class="num">Items</th>
+              <th class="num">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              ledgerDaily.length === 0
+                ? `<tr><td colspan="4">No orders for this month.</td></tr>`
+                : ledgerDaily
+                    .map(
+                      (row) => `<tr>
+                <td>${escapeReportHtml(row.saleDate)}</td>
+                <td class="num">${row.totalOrders}</td>
+                <td class="num">${row.totalItems}</td>
+                <td class="num">${escapeReportHtml(money(row.totalRevenue))}</td>
+              </tr>`,
+                    )
+                    .join("")
+            }
+          </tbody>
+        </table>
+        <p class="muted" style="margin-top:16px;">Order detail</p>
+      `;
+    }
+
+    body += `
+      <table>
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Receipt #</th>
+            <th>Type</th>
+            <th class="num">Amount</th>
+            <th class="num">Balance</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            ledgerEntries.length === 0
+              ? `<tr><td colspan="5">No checked-out orders.</td></tr>`
+              : ledgerEntries
+                  .map(
+                    (entry) => `<tr>
+              <td>${escapeReportHtml(entry.businessDate)}</td>
+              <td>${escapeReportHtml(entry.orderCode)}<div class="muted">${entry.itemCount} item${entry.itemCount === 1 ? "" : "s"}</div></td>
+              <td>${escapeReportHtml(
+                entry.orderType +
+                  (entry.tableNumber != null ? ` #${entry.tableNumber}` : ""),
+              )}</td>
+              <td class="num">${escapeReportHtml(money(entry.total))}</td>
+              <td class="num">${escapeReportHtml(money(entry.balance))}</td>
+            </tr>`,
+                  )
+                  .join("")
+          }
+        </tbody>
+      </table>
+    `;
+
+    await printReportHtml(reportPrintShell(title, subtitle, body));
+  };
+
+  const printSalesOrItemReport = async () => {
+    const isItems = reportMode === "items";
+    const title = isItems ? "Item Report" : "Sales Report";
+    const subtitle = isItems
+      ? `Item report · ${itemReportPeriodLabel}${
+          reportCategory !== "all" ? ` · ${reportCategory}` : " · All categories"
+        }${
+          reportCustomerKey !== "all"
+            ? ` · ${reportCustomerKey.split("\t")[0]}`
+            : " · All customers"
+        }`
+      : reportMode === "date"
+        ? `Report for ${reportDate}`
+        : reportMode === "daily"
+          ? `Day-by-day · ${monthLabel(reportYear, reportMonth)}`
+          : `Monthly · ${reportYear}`;
+
+    let body = `
+      <div class="totals">
+        <span><strong>Revenue:</strong> ${escapeReportHtml(money(reportTotals.totalRevenue))}</span>
+        <span><strong>Orders:</strong> ${reportTotals.totalOrders}</span>
+        <span><strong>Items:</strong> ${reportTotals.totalItems}</span>
+      </div>
+    `;
+
+    if (isItems) {
+      body += `
+        <table>
+          <thead>
+            <tr>
+              ${itemReportRange !== "date" ? "<th>Period</th>" : ""}
+              <th>Item</th>
+              <th>Category</th>
+              <th class="num">Qty</th>
+              <th class="num">Revenue</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              itemReportRows.length === 0
+                ? `<tr><td colspan="5">No items sold for this period.</td></tr>`
+                : itemReportRows
+                    .map((item) => {
+                      const variant = itemReportVariant(item);
+                      return `<tr>
+                ${
+                  itemReportRange !== "date"
+                    ? `<td>${escapeReportHtml(item.period || "")}</td>`
+                    : ""
+                }
+                <td>${escapeReportHtml(item.name)}${
+                  variant
+                    ? `<div class="muted">${escapeReportHtml(variant)}</div>`
+                    : ""
+                }</td>
+                <td>${escapeReportHtml(item.category || "—")}</td>
+                <td class="num">${item.quantitySold}</td>
+                <td class="num">${escapeReportHtml(money(item.revenue))}</td>
+              </tr>`;
+                    })
+                    .join("")
+            }
+          </tbody>
+        </table>
+      `;
+    } else if (reportMode === "monthly") {
+      body += `
+        <table>
+          <thead>
+            <tr>
+              <th>Month</th>
+              <th class="num">Revenue</th>
+              <th class="num">Orders</th>
+              <th class="num">Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              monthlyRows.length === 0
+                ? `<tr><td colspan="4">No monthly sales for this year.</td></tr>`
+                : monthlyRows
+                    .map(
+                      (row) => `<tr>
+                <td>${escapeReportHtml(row.period)}</td>
+                <td class="num">${escapeReportHtml(money(row.totalRevenue))}</td>
+                <td class="num">${row.totalOrders}</td>
+                <td class="num">${row.totalItems}</td>
+              </tr>`,
+                    )
+                    .join("")
+            }
+          </tbody>
+        </table>
+      `;
+    } else {
+      body += `
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th class="num">Revenue</th>
+              <th class="num">Orders</th>
+              <th class="num">Items</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              dailyRows.length === 0
+                ? `<tr><td colspan="4">No sales for this period.</td></tr>`
+                : dailyRows
+                    .map(
+                      (row) => `<tr>
+                <td>${escapeReportHtml(row.saleDate)}</td>
+                <td class="num">${escapeReportHtml(money(row.totalRevenue))}</td>
+                <td class="num">${row.totalOrders}</td>
+                <td class="num">${row.totalItems}</td>
+              </tr>`,
+                    )
+                    .join("")
+            }
+          </tbody>
+        </table>
+      `;
+
+      if (reportMode === "date" && dateOrders.length > 0) {
+        body += `
+          <p class="muted" style="margin-top:16px;">Orders on ${escapeReportHtml(reportDate)}</p>
+          <table>
+            <thead>
+              <tr>
+                <th>Order</th>
+                <th>Customer</th>
+                <th>Type</th>
+                <th class="num">Items</th>
+                <th class="num">Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${dateOrders
+                .map(
+                  (order) => `<tr>
+                <td>${escapeReportHtml(order.orderCode)}</td>
+                <td>${escapeReportHtml(order.customerName)}${
+                  order.customerPhone
+                    ? `<div class="muted">${escapeReportHtml(order.customerPhone)}</div>`
+                    : ""
+                }</td>
+                <td>${escapeReportHtml(
+                  order.orderType +
+                    (order.tableNumber != null ? ` #${order.tableNumber}` : ""),
+                )}</td>
+                <td class="num">${order.itemCount}</td>
+                <td class="num">${escapeReportHtml(money(order.total))}</td>
+              </tr>`,
+                )
+                .join("")}
+            </tbody>
+          </table>
+        `;
+      }
+    }
+
+    await printReportHtml(reportPrintShell(title, subtitle, body));
   };
 
   const updateDraft = (id: number, field: "name" | "phone", value: string) => {
@@ -1395,6 +1718,7 @@ export default function SettingsPage() {
   const startEditProduct = (product: CatalogProduct) => {
     setEditingProductId(product.id);
     setOriginalEditImage(product.image || DEFAULT_IMAGE);
+    const sizes = product.sizePrices || {};
     setNewItem({
       name: product.name,
       category: product.category,
@@ -1406,6 +1730,9 @@ export default function SettingsPage() {
         product.stock != null && Number.isFinite(Number(product.stock))
           ? String(product.stock)
           : "",
+      priceS: sizes.S != null ? String(sizes.S) : "",
+      priceM: sizes.M != null ? String(sizes.M) : "",
+      priceL: sizes.L != null ? String(sizes.L) : "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1419,11 +1746,35 @@ export default function SettingsPage() {
       showToast("Category is required");
       return;
     }
-    const price = Number(newItem.basePrice);
-    if (!Number.isFinite(price) || price < 0) {
+
+    const isPizza = newItem.category.trim() === "Pizza";
+    let sizePrices: Record<string, number> | null = null;
+    let sizes: string[] | null = null;
+    let price = Number(newItem.basePrice);
+
+    if (isPizza) {
+      const s = Number(newItem.priceS);
+      const m = Number(newItem.priceM);
+      const l = Number(newItem.priceL);
+      if (
+        !Number.isFinite(s) ||
+        s < 0 ||
+        !Number.isFinite(m) ||
+        m < 0 ||
+        !Number.isFinite(l) ||
+        l < 0
+      ) {
+        showToast("Valid S / M / L pizza prices are required");
+        return;
+      }
+      sizePrices = { S: s, M: m, L: l };
+      sizes = ["S", "M", "L"];
+      price = s;
+    } else if (!Number.isFinite(price) || price < 0) {
       showToast("Valid price is required");
       return;
     }
+
     const stockRaw = newItem.stock.trim();
     let stock: number | null = null;
     if (stockRaw !== "") {
@@ -1449,10 +1800,14 @@ export default function SettingsPage() {
         image: newItem.image.trim() || DEFAULT_IMAGE,
         sku: newItem.sku.trim(),
         stock,
-        sizePrices: existing?.sizePrices ?? null,
-        sizes: existing?.sizes ?? null,
-        hasExtraToppings: existing?.hasExtraToppings ?? null,
-        hasSauceOptions: existing?.hasSauceOptions ?? null,
+        sizePrices: isPizza ? sizePrices : (existing?.sizePrices ?? null),
+        sizes: isPizza ? sizes : (existing?.sizes ?? null),
+        hasExtraToppings: isPizza
+          ? (existing?.hasExtraToppings ?? true)
+          : (existing?.hasExtraToppings ?? null),
+        hasSauceOptions: isPizza
+          ? (existing?.hasSauceOptions ?? true)
+          : (existing?.hasSauceOptions ?? null),
       };
 
       const res = await fetch("/api/catalog/products", {
@@ -2073,22 +2428,51 @@ export default function SettingsPage() {
                     ))}
                   </select>
                 </div>
-                <div className="col-span-3">
-                  <input
-                    type="number"
-                    min="0"
-                    step="1"
-                    value={newItem.basePrice}
-                    onChange={(e) =>
-                      setNewItem((prev) => ({
-                        ...prev,
-                        basePrice: e.target.value,
-                      }))
-                    }
-                    placeholder="Price"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                  />
-                </div>
+                {newItem.category === "Pizza" ? (
+                  <div className="col-span-3 grid grid-cols-3 gap-2">
+                    {(
+                      [
+                        ["priceS", "S"],
+                        ["priceM", "M"],
+                        ["priceL", "L"],
+                      ] as const
+                    ).map(([field, label]) => (
+                      <input
+                        key={field}
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={newItem[field]}
+                        onChange={(e) =>
+                          setNewItem((prev) => ({
+                            ...prev,
+                            [field]: e.target.value,
+                          }))
+                        }
+                        placeholder={`${label} price`}
+                        title={`${label} size price`}
+                        className="w-full border border-gray-200 rounded-lg px-2 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <div className="col-span-3">
+                    <input
+                      type="number"
+                      min="0"
+                      step="1"
+                      value={newItem.basePrice}
+                      onChange={(e) =>
+                        setNewItem((prev) => ({
+                          ...prev,
+                          basePrice: e.target.value,
+                        }))
+                      }
+                      placeholder="Price"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                )}
                 <div className="col-span-2 flex justify-end gap-2">
                   {editingProductId && (
                     <button
@@ -2314,7 +2698,7 @@ export default function SettingsPage() {
                       </div>
                       <div className="col-span-2 text-sm font-semibold text-gray-900">
                         {product.sizePrices
-                          ? "Sizes"
+                          ? formatSizePrices(product.sizePrices)
                           : money(product.basePrice)}
                       </div>
                       <div className="col-span-3 flex justify-end gap-2">
@@ -2812,13 +3196,13 @@ export default function SettingsPage() {
                       type="button"
                       onClick={() => void saveReceiptNumberSettings()}
                       disabled={
-                        isSavingReceipt ||
+                        isSavingReceiptNumber ||
                         isUploadingReceiptLogo ||
                         isUploadingPaymentImage
                       }
                       className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50"
                     >
-                      {isSavingReceipt
+                      {isSavingReceiptNumber
                         ? "Saving..."
                         : "Save Receipt Number Settings"}
                     </button>
@@ -3054,6 +3438,14 @@ export default function SettingsPage() {
                   className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
                 >
                   {reportsLoading ? "Loading..." : "View Report"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void printSalesOrItemReport()}
+                  disabled={reportsLoading}
+                  className="px-4 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
+                >
+                  Print Report
                 </button>
               </div>
             </div>
@@ -3326,8 +3718,32 @@ export default function SettingsPage() {
               </p>
               <p className="text-sm text-gray-500 mb-3">
                 Select a customer to see all checked-out orders, totals, and
-                running balance.
+                running balance. Use Day by Day for a monthly daily summary.
               </p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setLedgerViewMode("all")}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    ledgerViewMode === "all"
+                      ? "bg-[#1a3a5c] text-white"
+                      : "bg-gray-50 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  All Orders
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLedgerViewMode("daily")}
+                  className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
+                    ledgerViewMode === "daily"
+                      ? "bg-[#1a3a5c] text-white"
+                      : "bg-gray-50 text-gray-700 border border-gray-200"
+                  }`}
+                >
+                  Day by Day
+                </button>
+              </div>
               <div className="flex flex-wrap items-end gap-3">
                 <div className="min-w-[260px] flex-1">
                   <label className="block text-xs text-gray-500 mb-1">
@@ -3347,6 +3763,44 @@ export default function SettingsPage() {
                     ))}
                   </select>
                 </div>
+                {ledgerViewMode === "daily" && (
+                  <>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Year
+                      </label>
+                      <select
+                        value={ledgerYear}
+                        onChange={(e) => setLedgerYear(Number(e.target.value))}
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        {yearOptions.map((y) => (
+                          <option key={y} value={y}>
+                            {y}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 mb-1">
+                        Month
+                      </label>
+                      <select
+                        value={ledgerMonth}
+                        onChange={(e) => setLedgerMonth(Number(e.target.value))}
+                        className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                          <option key={m} value={m}>
+                            {new Date(2000, m - 1, 1).toLocaleString(undefined, {
+                              month: "long",
+                            })}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
                 <button
                   type="button"
                   onClick={() => void loadLedger()}
@@ -3354,6 +3808,14 @@ export default function SettingsPage() {
                   className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
                 >
                   {ledgerLoading ? "Loading..." : "View Ledger"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void printCustomerLedger()}
+                  disabled={ledgerLoading || !ledgerCustomerKey}
+                  className="px-4 py-2 rounded-lg bg-blue-50 text-blue-800 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
+                >
+                  Print Ledger
                 </button>
               </div>
             </div>
@@ -3381,10 +3843,60 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
+                {ledgerViewMode === "daily" && (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-4">
+                    <div className="px-4 py-3 border-b border-gray-100">
+                      <p className="text-sm font-semibold text-gray-900">
+                        Day by day · {monthLabel(ledgerYear, ledgerMonth)}
+                      </p>
+                    </div>
+                    {ledgerLoading ? (
+                      <div className="p-8 text-sm text-gray-500">
+                        Loading ledger...
+                      </div>
+                    ) : ledgerDaily.length === 0 ? (
+                      <div className="p-8 text-sm text-gray-500">
+                        No orders for this month.
+                      </div>
+                    ) : (
+                      <div className="divide-y divide-gray-100">
+                        <div className="px-4 py-2 grid grid-cols-12 gap-2 text-xs font-semibold text-gray-500 uppercase">
+                          <div className="col-span-4">Date</div>
+                          <div className="col-span-2 text-right">Orders</div>
+                          <div className="col-span-3 text-right">Items</div>
+                          <div className="col-span-3 text-right">Amount</div>
+                        </div>
+                        {ledgerDaily.map((row) => (
+                          <div
+                            key={row.saleDate}
+                            className="px-4 py-3 grid grid-cols-12 gap-2 text-sm"
+                          >
+                            <div className="col-span-4 font-medium text-gray-900">
+                              {row.saleDate}
+                            </div>
+                            <div className="col-span-2 text-right text-gray-700">
+                              {row.totalOrders}
+                            </div>
+                            <div className="col-span-3 text-right text-gray-700">
+                              {row.totalItems}
+                            </div>
+                            <div className="col-span-3 text-right font-semibold">
+                              {money(row.totalRevenue)}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="px-4 py-3 border-b border-gray-100">
                     <p className="text-sm font-semibold text-gray-900">
-                      Ledger · {ledgerCustomerKey.split("\t")[0]}
+                      {ledgerViewMode === "daily"
+                        ? `Orders · ${monthLabel(ledgerYear, ledgerMonth)}`
+                        : "Ledger"}{" "}
+                      · {ledgerCustomerKey.split("\t")[0]}
                       {ledgerCustomerKey.split("\t")[1]
                         ? ` (${ledgerCustomerKey.split("\t")[1]})`
                         : ""}
@@ -3396,7 +3908,8 @@ export default function SettingsPage() {
                     </div>
                   ) : ledgerEntries.length === 0 ? (
                     <div className="p-8 text-sm text-gray-500">
-                      No checked-out orders for this customer.
+                      No checked-out orders for this customer
+                      {ledgerViewMode === "daily" ? " in this month" : ""}.
                     </div>
                   ) : (
                     <div className="divide-y divide-gray-100">

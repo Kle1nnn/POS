@@ -394,6 +394,53 @@ export function printHtml(html: string): Promise<void> {
   });
 }
 
+/** A4 / letter report print (ledger, sales, item reports). */
+export function printReportHtml(html: string): Promise<void> {
+  return new Promise((resolve) => {
+    const iframe = document.createElement("iframe");
+    iframe.title = "Report Print";
+    iframe.style.cssText =
+      "position:fixed;top:-9999px;left:-9999px;width:210mm;height:1px;border:none;visibility:hidden;";
+    document.body.appendChild(iframe);
+
+    let settled = false;
+    const finish = () => {
+      if (settled) return;
+      settled = true;
+      window.setTimeout(() => {
+        iframe.remove();
+        resolve();
+      }, 150);
+    };
+
+    const onAfterPrint = () => finish();
+    const fallback = window.setTimeout(finish, 4000);
+
+    iframe.onload = () => {
+      const win = iframe.contentWindow;
+      if (!win) {
+        window.clearTimeout(fallback);
+        finish();
+        return;
+      }
+      win.addEventListener("afterprint", onAfterPrint, { once: true });
+      win.focus();
+      win.print();
+    };
+
+    iframe.srcdoc = html;
+  });
+}
+
+export function escapeReportHtml(value: string) {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 export async function printOrderReceipts(
   cartItems: CartItem[],
   totalPrice: number,
