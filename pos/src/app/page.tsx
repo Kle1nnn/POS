@@ -9,7 +9,7 @@ export default function Home() {
   return (
     <div className="min-h-screen font-sans bg-[#f0f2f5]">
       <Searchbar value={searchQuery} onChange={setSearchQuery} />
-      <MenuGrid searchQuery={searchQuery} />
+      <MenuGrid searchQuery={searchQuery} onSearchChange={setSearchQuery} />
     </div>
   );
 }

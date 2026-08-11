@@ -37,8 +37,15 @@ export function ensureCatalogTables(): Promise<void> {
             ADD COLUMN IF NOT EXISTS has_sauce_options boolean;
           ALTER TABLE custom_products
             ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT NOW();
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS sku text NOT NULL DEFAULT '';
+          ALTER TABLE custom_products
+            ADD COLUMN IF NOT EXISTS stock integer;
           CREATE INDEX IF NOT EXISTS idx_custom_products_category
             ON custom_products (LOWER(category));
+          CREATE INDEX IF NOT EXISTS idx_custom_products_sku
+            ON custom_products (LOWER(sku))
+            WHERE sku <> '';
         `);
       } finally {
         client.release();

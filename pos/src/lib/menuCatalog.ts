@@ -12,6 +12,8 @@ export type CatalogProductRow = {
   sizes?: string[] | null;
   hasExtraToppings?: boolean | null;
   hasSauceOptions?: boolean | null;
+  sku?: string | null;
+  stock?: number | null;
   isDeleted?: boolean;
   source?: "builtin" | "custom";
   createdAt?: string;
@@ -53,6 +55,11 @@ export function mergeMenuProducts(
           override.hasExtraToppings ?? product.hasExtraToppings ?? null,
         hasSauceOptions:
           override.hasSauceOptions ?? product.hasSauceOptions ?? null,
+        sku: override.sku ?? product.sku ?? "",
+        stock:
+          override.stock != null
+            ? Number(override.stock)
+            : product.stock ?? null,
         isDeleted: false,
         source: "builtin",
       });
@@ -68,6 +75,8 @@ export function mergeMenuProducts(
         sizes: product.sizes ?? null,
         hasExtraToppings: product.hasExtraToppings ?? null,
         hasSauceOptions: product.hasSauceOptions ?? null,
+        sku: product.sku ?? "",
+        stock: product.stock ?? null,
         isDeleted: false,
         source: "builtin",
       });
@@ -101,6 +110,10 @@ export function toCartProduct(p: CatalogProductRow): Product {
       : {}),
     ...(p.hasSauceOptions != null
       ? { hasSauceOptions: !!p.hasSauceOptions }
+      : {}),
+    ...(p.sku ? { sku: p.sku } : {}),
+    ...(p.stock != null && Number.isFinite(Number(p.stock))
+      ? { stock: Number(p.stock) }
       : {}),
   };
 }

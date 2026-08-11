@@ -573,6 +573,9 @@ export default function Billing() {
                         <span className="text-gray-400 font-normal"> · {item.selectedSize}</span>
                       )}
                     </p>
+                    {item.sku ? (
+                      <p className="text-[0.65rem] text-gray-400 mt-0.5">SKU: {item.sku}</p>
+                    ) : null}
                     {((item.selectedTopping && item.selectedTopping !== "None") || (item.selectedSauce && item.selectedSauce !== "None")) && (
                       <div className="flex gap-1 flex-wrap mt-0.5">
                         {item.selectedTopping && item.selectedTopping !== "None" && (

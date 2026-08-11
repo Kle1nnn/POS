@@ -43,6 +43,8 @@ type CatalogProduct = {
   sizes?: string[] | null;
   hasExtraToppings?: boolean | null;
   hasSauceOptions?: boolean | null;
+  sku?: string | null;
+  stock?: number | null;
 };
 
 type DailyRow = {
@@ -271,6 +273,8 @@ export default function SettingsPage() {
     basePrice: "",
     description: "",
     image: DEFAULT_IMAGE,
+    sku: "",
+    stock: "",
   };
   const [newItem, setNewItem] = useState(emptyItemForm);
   const [editingProductId, setEditingProductId] = useState<string | null>(null);
@@ -340,6 +344,7 @@ export default function SettingsPage() {
   });
   const [receiptLoading, setReceiptLoading] = useState(false);
   const [isSavingReceipt, setIsSavingReceipt] = useState(false);
+  const [isSavingReceiptNumber, setIsSavingReceiptNumber] = useState(false);
   const [isUploadingReceiptLogo, setIsUploadingReceiptLogo] = useState(false);
   const [isUploadingPaymentImage, setIsUploadingPaymentImage] = useState(false);
   const receiptLogoInputRef = useRef<HTMLInputElement>(null);
@@ -666,7 +671,8 @@ export default function SettingsPage() {
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q) ||
-        (p.description || "").toLowerCase().includes(q),
+        (p.description || "").toLowerCase().includes(q) ||
+        (p.sku || "").toLowerCase().includes(q),
     );
   }, [catalogProducts, itemQuery]);
 
@@ -1235,13 +1241,20 @@ export default function SettingsPage() {
       const res = await fetch("/api/receipt-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(receiptSettings),
+        body: JSON.stringify({
+          storeName: receiptSettings.storeName,
+          storeAddress: receiptSettings.storeAddress,
+          storePhones: receiptSettings.storePhones,
+          logoImage: receiptSettings.logoImage,
+          paymentTitle: receiptSettings.paymentTitle,
+          paymentImage: receiptSettings.paymentImage,
+          paymentLine: receiptSettings.paymentLine,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error ?? "Failed to save receipt settings");
       setReceiptSettings(data.settings ?? receiptSettings);
       clearReceiptSettingsCache();
-      window.dispatchEvent(new Event("receipt-number-settings-changed"));
       showToast("Receipt settings saved");
     } catch (error) {
       console.error("Failed to save receipt settings", error);
@@ -1260,13 +1273,12 @@ export default function SettingsPage() {
       showToast("Next receipt number must be 1 or higher");
       return;
     }
-    setIsSavingReceipt(true);
+    setIsSavingReceiptNumber(true);
     try {
       const res = await fetch("/api/receipt-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          ...receiptSettings,
           receiptPrefix: prefix,
           receiptNextNumber: Math.floor(nextNum),
         }),
@@ -1287,7 +1299,7 @@ export default function SettingsPage() {
           : "Save receipt number settings failed",
       );
     } finally {
-      setIsSavingReceipt(false);
+      setIsSavingReceiptNumber(false);
     }
   };
 
@@ -1389,6 +1401,11 @@ export default function SettingsPage() {
       basePrice: String(product.basePrice),
       description: product.description || "",
       image: product.image || DEFAULT_IMAGE,
+      sku: product.sku || "",
+      stock:
+        product.stock != null && Number.isFinite(Number(product.stock))
+          ? String(product.stock)
+          : "",
     });
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -1407,6 +1424,16 @@ export default function SettingsPage() {
       showToast("Valid price is required");
       return;
     }
+    const stockRaw = newItem.stock.trim();
+    let stock: number | null = null;
+    if (stockRaw !== "") {
+      stock = Number(stockRaw);
+      if (!Number.isFinite(stock) || stock < 0) {
+        showToast("Valid stock is required");
+        return;
+      }
+      stock = Math.floor(stock);
+    }
 
     setIsSavingItem(true);
     try {
@@ -1420,6 +1447,8 @@ export default function SettingsPage() {
         basePrice: price,
         description: newItem.description.trim() || newItem.name.trim(),
         image: newItem.image.trim() || DEFAULT_IMAGE,
+        sku: newItem.sku.trim(),
+        stock,
         sizePrices: existing?.sizePrices ?? null,
         sizes: existing?.sizes ?? null,
         hasExtraToppings: existing?.hasExtraToppings ?? null,
@@ -1971,7 +2000,7 @@ export default function SettingsPage() {
               </p>
               <p className="text-sm text-gray-500 mb-3">
                 {editingProductId
-                  ? "Update item details, price, category, or picture."
+                  ? "Update item details, SKU, stock, price, category, or picture."
                   : "Add a new menu item under an existing or custom category."}
               </p>
               <div className="grid grid-cols-12 gap-3">
@@ -2081,6 +2110,32 @@ export default function SettingsPage() {
                         ? "Update"
                         : "Add Item"}
                   </button>
+                </div>
+                <div className="col-span-4">
+                  <input
+                    value={newItem.sku}
+                    onChange={(e) =>
+                      setNewItem((prev) => ({ ...prev, sku: e.target.value }))
+                    }
+                    placeholder="Product SKU"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                </div>
+                <div className="col-span-4">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={newItem.stock}
+                    onChange={(e) =>
+                      setNewItem((prev) => ({
+                        ...prev,
+                        stock: e.target.value,
+                      }))
+                    }
+                    placeholder="Stock (optional)"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
                 </div>
                 <div className="col-span-12">
                   <input
@@ -2216,7 +2271,7 @@ export default function SettingsPage() {
                 <input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
-                  placeholder="Search all items by name or category..."
+                  placeholder="Search all items by name, SKU, or category..."
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
@@ -2238,12 +2293,14 @@ export default function SettingsPage() {
                           className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-gray-50"
                         />
                       </div>
-                      <div className="col-span-4 min-w-0">
+                      <div className="col-span-3 min-w-0">
                         <p className="text-sm font-semibold text-gray-900 truncate">
                           {product.name}
                         </p>
                         <p className="text-xs text-gray-500 truncate">
-                          {product.description}
+                          {product.sku
+                            ? `SKU: ${product.sku}`
+                            : product.description}
                         </p>
                       </div>
                       <div className="col-span-2 text-sm text-gray-600">
@@ -2251,6 +2308,9 @@ export default function SettingsPage() {
                         <div className="text-[10px] uppercase tracking-wide text-gray-400">
                           {product.source === "custom" ? "Custom" : "Menu"}
                         </div>
+                      </div>
+                      <div className="col-span-1 text-sm text-gray-600">
+                        {product.stock != null ? product.stock : "—"}
                       </div>
                       <div className="col-span-2 text-sm font-semibold text-gray-900">
                         {product.sizePrices

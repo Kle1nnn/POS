@@ -9,4 +9,6 @@ export interface Product {
   sizes?: string[];
   hasExtraToppings?: boolean;
   hasSauceOptions?: boolean;
+  sku?: string;
+  stock?: number | null;
 }

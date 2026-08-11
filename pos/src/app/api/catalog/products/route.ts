@@ -7,6 +7,13 @@ import {
   type CatalogProductRow,
 } from "../../../../lib/menuCatalog";
 
+function parseStock(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 0) return null;
+  return Math.floor(n);
+}
+
 function mapRow(row: Record<string, unknown>): CatalogProductRow {
   return {
     id: row.id as string,
@@ -21,18 +28,22 @@ function mapRow(row: Record<string, unknown>): CatalogProductRow {
       row.has_extra_toppings == null ? null : Boolean(row.has_extra_toppings),
     hasSauceOptions:
       row.has_sauce_options == null ? null : Boolean(row.has_sauce_options),
+    sku: ((row.sku as string) ?? "").trim(),
+    stock: row.stock == null ? null : Number(row.stock),
     isDeleted: Boolean(row.is_deleted),
     createdAt: row.created_at as string | undefined,
   };
 }
 
+const PRODUCT_SELECT = `id, name, description, base_price, image, category,
+            size_prices, sizes, has_extra_toppings, has_sauce_options,
+            sku, stock, is_deleted, created_at`;
+
 async function loadOverrideRows(
   client: Awaited<ReturnType<typeof pgPool.connect>>,
 ) {
   const result = await client.query(
-    `SELECT id, name, description, base_price, image, category,
-            size_prices, sizes, has_extra_toppings, has_sauce_options,
-            is_deleted, created_at
+    `SELECT ${PRODUCT_SELECT}
      FROM custom_products
      ORDER BY created_at DESC, id DESC`,
   );
@@ -88,6 +99,8 @@ export async function POST(req: NextRequest) {
       basePrice?: number | string;
       description?: string;
       image?: string;
+      sku?: string;
+      stock?: number | string | null;
       sizePrices?: Record<string, number>;
       sizes?: string[];
       hasExtraToppings?: boolean;
@@ -97,6 +110,8 @@ export async function POST(req: NextRequest) {
     const name = body.name?.trim();
     const category = body.category?.trim();
     const basePrice = Number(body.basePrice);
+    const sku = body.sku?.trim() || "";
+    const stock = parseStock(body.stock);
 
     if (!name) {
       return NextResponse.json({ error: "name is required" }, { status: 400 });
@@ -113,6 +128,17 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       );
     }
+    if (
+      body.stock !== undefined &&
+      body.stock !== null &&
+      body.stock !== "" &&
+      stock === null
+    ) {
+      return NextResponse.json(
+        { error: "valid stock is required" },
+        { status: 400 },
+      );
+    }
 
     const description = body.description?.trim() || name;
     const image = body.image?.trim() || "deals.png";
@@ -124,11 +150,10 @@ export async function POST(req: NextRequest) {
     const result = await client.query(
       `INSERT INTO custom_products (
          id, name, description, base_price, image, category,
-         size_prices, sizes, has_extra_toppings, has_sauce_options, is_deleted
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false)
-       RETURNING id, name, description, base_price, image, category,
-                 size_prices, sizes, has_extra_toppings, has_sauce_options,
-                 is_deleted, created_at`,
+         size_prices, sizes, has_extra_toppings, has_sauce_options,
+         sku, stock, is_deleted
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false)
+       RETURNING ${PRODUCT_SELECT}`,
       [
         id,
         name,
@@ -140,6 +165,8 @@ export async function POST(req: NextRequest) {
         body.sizes ? JSON.stringify(body.sizes) : null,
         body.hasExtraToppings ?? null,
         body.hasSauceOptions ?? null,
+        sku,
+        stock,
       ],
     );
 
@@ -169,6 +196,8 @@ export async function PATCH(req: NextRequest) {
       basePrice?: number | string;
       description?: string;
       image?: string;
+      sku?: string;
+      stock?: number | string | null;
       sizePrices?: Record<string, number> | null;
       sizes?: string[] | null;
       hasExtraToppings?: boolean | null;
@@ -179,6 +208,8 @@ export async function PATCH(req: NextRequest) {
     const name = body.name?.trim();
     const category = body.category?.trim();
     const basePrice = Number(body.basePrice);
+    const sku = body.sku?.trim() || "";
+    const stock = parseStock(body.stock);
 
     if (!id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 });
@@ -195,6 +226,17 @@ export async function PATCH(req: NextRequest) {
     if (!Number.isFinite(basePrice) || basePrice < 0) {
       return NextResponse.json(
         { error: "valid basePrice is required" },
+        { status: 400 },
+      );
+    }
+    if (
+      body.stock !== undefined &&
+      body.stock !== null &&
+      body.stock !== "" &&
+      stock === null
+    ) {
+      return NextResponse.json(
+        { error: "valid stock is required" },
         { status: 400 },
       );
     }
@@ -217,8 +259,8 @@ export async function PATCH(req: NextRequest) {
       `INSERT INTO custom_products (
          id, name, description, base_price, image, category,
          size_prices, sizes, has_extra_toppings, has_sauce_options,
-         is_deleted, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,false,NOW())
+         sku, stock, is_deleted, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,NOW())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
@@ -229,11 +271,11 @@ export async function PATCH(req: NextRequest) {
          sizes = EXCLUDED.sizes,
          has_extra_toppings = EXCLUDED.has_extra_toppings,
          has_sauce_options = EXCLUDED.has_sauce_options,
+         sku = EXCLUDED.sku,
+         stock = EXCLUDED.stock,
          is_deleted = false,
          updated_at = NOW()
-       RETURNING id, name, description, base_price, image, category,
-                 size_prices, sizes, has_extra_toppings, has_sauce_options,
-                 is_deleted, created_at`,
+       RETURNING ${PRODUCT_SELECT}`,
       [
         id,
         name,
@@ -245,6 +287,8 @@ export async function PATCH(req: NextRequest) {
         sizes ? JSON.stringify(sizes) : null,
         hasExtraToppings,
         hasSauceOptions,
+        sku,
+        stock,
       ],
     );
 

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useCart, makeCartKey } from "../context/CartContext";
 import { products } from "../data/products";
@@ -39,14 +39,17 @@ type Selection =
 
 export default function MenuGrid({
   searchQuery = "",
+  onSearchChange,
 }: {
   searchQuery?: string;
+  onSearchChange?: (value: string) => void;
 }) {
   const { addToCart } = useCart();
   const router = useRouter();
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
   const [menuProducts, setMenuProducts] = useState<Product[]>(baseProducts);
   const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
+  const lastAutoSkuRef = useRef("");
 
   useEffect(() => {
     let cancelled = false;
@@ -74,6 +77,8 @@ export default function MenuGrid({
               sizes?: string[] | null;
               hasExtraToppings?: boolean | null;
               hasSauceOptions?: boolean | null;
+              sku?: string | null;
+              stock?: number | null;
             }) => ({
               id: p.id,
               name: p.name,
@@ -88,6 +93,10 @@ export default function MenuGrid({
                 : {}),
               ...(p.hasSauceOptions != null
                 ? { hasSauceOptions: !!p.hasSauceOptions }
+                : {}),
+              ...(p.sku ? { sku: String(p.sku).trim() } : {}),
+              ...(p.stock != null && Number.isFinite(Number(p.stock))
+                ? { stock: Number(p.stock) }
                 : {}),
             }),
           ),
@@ -189,9 +198,40 @@ export default function MenuGrid({
     ? allProducts.filter(
         (p) =>
           p.name.toLowerCase().includes(query) ||
-          p.description.toLowerCase().includes(query),
+          p.description.toLowerCase().includes(query) ||
+          (p.sku || "").toLowerCase().includes(query),
       )
     : [];
+
+  // Exact SKU match → add item to bill (quick entry / barcode)
+  useEffect(() => {
+    const raw = searchQuery.trim();
+    if (!raw) {
+      lastAutoSkuRef.current = "";
+      return;
+    }
+    const q = raw.toLowerCase();
+    if (q === lastAutoSkuRef.current) return;
+
+    const exact = allProducts.find(
+      (p) => (p.sku || "").trim().toLowerCase() === q,
+    );
+    if (!exact) return;
+
+    lastAutoSkuRef.current = q;
+
+    if (exact.category === "Pizza") {
+      setSelection({ mode: "pizza", productId: exact.id });
+      return;
+    }
+
+    addToCart({
+      ...exact,
+      cartKey: makeCartKey(exact.id),
+      price: exact.basePrice,
+    });
+    onSearchChange?.("");
+  }, [searchQuery, allProducts, addToCart, onSearchChange]);
 
   const selectedPizza =
     selection.mode === "pizza"
@@ -275,6 +315,7 @@ export default function MenuGrid({
             key={pizza.id}
             label={shortName}
             image="pizzaa.png"
+            sku={pizza.sku}
             selected={isSelected}
             selectedColor="blue"
             onClick={() => togglePizza(pizza.id)}
@@ -317,6 +358,7 @@ export default function MenuGrid({
                   key={p.id}
                   label={p.name}
                   image={p.image}
+                  sku={p.sku}
                   selected={isSelected}
                   selectedColor="blue"
                   onClick={() =>
@@ -357,6 +399,7 @@ export default function MenuGrid({
 function Tile({
   label,
   image,
+  sku,
   fallbackEmoji,
   selected,
   selectedColor,
@@ -364,6 +407,7 @@ function Tile({
 }: {
   label: string;
   image: string;
+  sku?: string;
   fallbackEmoji?: string;
   selected: boolean;
   selectedColor: "blue" | "orange";
@@ -406,6 +450,11 @@ function Tile({
         <span className="text-[0.72rem] font-bold text-[#1a3a5c] leading-tight line-clamp-2 block">
           {label}
         </span>
+        {sku ? (
+          <span className="text-[0.58rem] text-gray-500 font-medium block truncate">
+            {sku}
+          </span>
+        ) : null}
       </div>
     </button>
   );
@@ -479,7 +528,13 @@ function SubItemPanel({
   onAdd,
 }: {
   category: string;
-  items: { id: string; name: string; basePrice: number; image: string }[];
+  items: {
+    id: string;
+    name: string;
+    basePrice: number;
+    image: string;
+    sku?: string;
+  }[];
   onAdd: (id: string) => void;
 }) {
   const [added, setAdded] = useState<string | null>(null);
@@ -523,10 +578,15 @@ function SubItemPanel({
                   <span className="text-3xl">🍽️</span>
                 )}
               </div>
-              <div className="px-2 py-1 text-center flex-1 flex items-center">
+              <div className="px-2 py-1 text-center flex-1 flex flex-col items-center justify-center">
                 <p className="text-[0.7rem] text-gray-700 font-semibold leading-tight">
                   {item.name}
                 </p>
+                {item.sku ? (
+                  <p className="text-[0.58rem] text-gray-500 mt-0.5 truncate w-full">
+                    {item.sku}
+                  </p>
+                ) : null}
               </div>
               <div
                 className={`w-full text-white text-sm font-bold text-center py-1.5 ${isAdded ? "bg-green-600" : "bg-[#2e7d32]"}`}
