@@ -12,7 +12,7 @@ import {
 } from "../lib/receipt";
 import { DEFAULT_RECEIPT_SETTINGS } from "../../lib/receipt-settings-shared";
 
-type Tab = "contacts" | "catalog" | "reports" | "ledger" | "receipt" | "backup";
+type Tab = "contacts" | "catalog" | "reports" | "ledger" | "receipt" | "receiptNumber" | "backup";
 
 type Customer = {
   id: number;
@@ -675,7 +675,7 @@ export default function SettingsPage() {
   }, []);
 
   useEffect(() => {
-    if (tab === "receipt") void loadReceiptSettings();
+    if (tab === "receipt" || tab === "receiptNumber") void loadReceiptSettings();
   }, [tab, loadReceiptSettings]);
 
   const openReportPrint = (order: DateOrderRow | LedgerEntry) => {
@@ -1944,6 +1944,7 @@ export default function SettingsPage() {
               { id: "reports", label: "Reports" },
               { id: "ledger", label: "Customer Ledger" },
               { id: "receipt", label: "Receipt Settings" },
+              { id: "receiptNumber", label: "Receipt Number" },
               { id: "backup", label: "Full Backup" },
             ] as const
           ).map((t) => (
@@ -3129,86 +3130,6 @@ export default function SettingsPage() {
                   />
                 </div>
 
-                <div className="rounded-xl border border-gray-200 bg-gray-50 p-4 space-y-3">
-                  <div>
-                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                      Receipt number settings
-                    </p>
-                    <p className="text-sm text-gray-500 mt-1">
-                      Set the prefix and next number used for new order receipts
-                      (example: TBT-101).
-                    </p>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Prefix
-                      </label>
-                      <input
-                        value={receiptSettings.receiptPrefix ?? "TBT"}
-                        onChange={(e) =>
-                          setReceiptSettings((s) => ({
-                            ...s,
-                            receiptPrefix: e.target.value
-                              .toUpperCase()
-                              .replace(/[^A-Z0-9]/g, "")
-                              .slice(0, 12),
-                          }))
-                        }
-                        placeholder="TBT"
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Next number
-                      </label>
-                      <input
-                        type="number"
-                        min={1}
-                        step={1}
-                        value={receiptSettings.receiptNextNumber ?? 1}
-                        onChange={(e) =>
-                          setReceiptSettings((s) => ({
-                            ...s,
-                            receiptNextNumber: Number(e.target.value || 1),
-                          }))
-                        }
-                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-gray-500 mb-1">
-                        Preview
-                      </label>
-                      <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-900">
-                        {(receiptSettings.receiptPrefix || "TBT").toUpperCase()}
-                        -
-                        {Math.max(
-                          1,
-                          Math.floor(Number(receiptSettings.receiptNextNumber) || 1),
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                  <div className="flex justify-end">
-                    <button
-                      type="button"
-                      onClick={() => void saveReceiptNumberSettings()}
-                      disabled={
-                        isSavingReceiptNumber ||
-                        isUploadingReceiptLogo ||
-                        isUploadingPaymentImage
-                      }
-                      className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50"
-                    >
-                      {isSavingReceiptNumber
-                        ? "Saving..."
-                        : "Save Receipt Number Settings"}
-                    </button>
-                  </div>
-                </div>
-
                 <div className="flex justify-end">
                   <button
                     type="button"
@@ -3221,6 +3142,89 @@ export default function SettingsPage() {
                     className="px-4 py-2 rounded-lg bg-green-700 text-white text-sm font-semibold hover:bg-green-800 disabled:opacity-50"
                   >
                     {isSavingReceipt ? "Saving..." : "Save Receipt Settings"}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab === "receiptNumber" && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+            <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+              Receipt number settings
+            </p>
+            <p className="text-sm text-gray-500 mb-4">
+              Set the prefix and next number used for new order receipts
+              (example: TBT-101).
+            </p>
+            {receiptLoading ? (
+              <div className="text-sm text-gray-500">Loading...</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3 items-end">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Prefix
+                    </label>
+                    <input
+                      value={receiptSettings.receiptPrefix ?? "TBT"}
+                      onChange={(e) =>
+                        setReceiptSettings((s) => ({
+                          ...s,
+                          receiptPrefix: e.target.value
+                            .toUpperCase()
+                            .replace(/[^A-Z0-9]/g, "")
+                            .slice(0, 12),
+                        }))
+                      }
+                      placeholder="TBT"
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Next number
+                    </label>
+                    <input
+                      type="number"
+                      min={1}
+                      step={1}
+                      value={receiptSettings.receiptNextNumber ?? 1}
+                      onChange={(e) =>
+                        setReceiptSettings((s) => ({
+                          ...s,
+                          receiptNextNumber: Number(e.target.value || 1),
+                        }))
+                      }
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Preview
+                    </label>
+                    <div className="border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white font-semibold text-gray-900">
+                      {(receiptSettings.receiptPrefix || "TBT").toUpperCase()}-
+                      {Math.max(
+                        1,
+                        Math.floor(
+                          Number(receiptSettings.receiptNextNumber) || 1,
+                        ),
+                      )}
+                    </div>
+                  </div>
+                </div>
+                <div className="flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => void saveReceiptNumberSettings()}
+                    disabled={isSavingReceiptNumber}
+                    className="px-4 py-2 rounded-lg bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] disabled:opacity-50"
+                  >
+                    {isSavingReceiptNumber
+                      ? "Saving..."
+                      : "Save Receipt Number Settings"}
                   </button>
                 </div>
               </div>
