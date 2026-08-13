@@ -131,7 +131,7 @@ export default function OrdersPage() {
       )}
 
       {/* ── Nav bar ── */}
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">📋 Saved Orders</h1>
         <div className="flex gap-2">
           <button
@@ -171,6 +171,12 @@ export default function OrdersPage() {
               />
             </svg>
             History
+          </button>
+          <button
+            onClick={() => router.push("/settings")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 active:scale-95 transition-all"
+          >
+            Settings
           </button>
         </div>
       </div>

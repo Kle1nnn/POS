@@ -1917,6 +1917,7 @@ export default function SettingsPage() {
         />
       )}
 
+      <div className="sticky top-0 z-30 bg-[#f0f2f5]">
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">⚙️ Settings</h1>
         <div className="flex items-center gap-2">
@@ -1932,10 +1933,16 @@ export default function SettingsPage() {
           >
             Orders
           </button>
+          <button
+            onClick={() => router.push("/History")}
+            className="px-4 py-2 rounded-xl bg-[#1a5c2a] text-white text-sm font-semibold hover:bg-green-700 transition-colors"
+          >
+            History
+          </button>
         </div>
       </div>
 
-      <div className="px-6 pt-4">
+      <div className="px-6 pt-4 pb-2 bg-[#f0f2f5] border-b border-gray-100">
         <div className="flex flex-wrap gap-2 mb-4">
           {(
             [
@@ -1962,8 +1969,9 @@ export default function SettingsPage() {
           ))}
         </div>
       </div>
+      </div>
 
-      <div className="p-6 pt-0 max-w-4xl">
+      <div className="p-6 pt-4 max-w-4xl">
         {tab === "contacts" && (
           <>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">

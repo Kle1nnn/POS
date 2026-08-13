@@ -133,10 +133,15 @@ export default function Billing() {
   }, []);
 
   const fetchSuggestions = useCallback(async (q: string) => {
-    if (!q.trim()) { setSuggestions([]); return; }
     try {
-      const res = await fetch(`/api/customers?q=${encodeURIComponent(q)}`);
-      if (res.ok) { const data = await res.json(); setSuggestions(data.customers ?? []); }
+      const url = q.trim()
+        ? `/api/customers?q=${encodeURIComponent(q)}`
+        : `/api/customers?all=1`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        setSuggestions((data.customers ?? []).slice(0, 12));
+      }
     } catch { setSuggestions([]); }
   }, []);
 
@@ -415,36 +420,44 @@ export default function Billing() {
         <div className="flex items-center gap-2">
           {/* Customer dropdown */}
           <div className="relative flex-1" ref={customerDropdownRef}>
-            <button
-              onClick={() => setCustomerDropdownOpen((v) => !v)}
-              className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-colors w-full text-left shadow-sm active:scale-[0.99]"
-            >
-              <span className="text-base">👤</span>
-              <span className="text-sm font-medium text-gray-700 flex-1 truncate">
-                {isWalkIn ? "Walk-In Customer" : (customerName || "Walk-In Customer")}
-              </span>
-              <svg className={`w-4 h-4 text-gray-400 transition-transform flex-shrink-0 ${customerDropdownOpen ? "rotate-180" : ""}`} fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-colors w-full shadow-sm">
+              <span className="text-base flex-shrink-0">👤</span>
+              <input
+                ref={nameInputRef}
+                type="text"
+                value={isWalkIn ? "" : customerName}
+                placeholder="Walk-In Customer"
+                autoComplete="off"
+                onFocus={() => {
+                  setCustomerDropdownOpen(true);
+                  setShowSuggestions(true);
+                  void fetchSuggestions(isWalkIn ? "" : customerName);
+                }}
+                onChange={(e) => {
+                  setIsWalkIn(false);
+                  setCustomerDropdownOpen(true);
+                  handleCustomerNameChange(e.target.value);
+                  if (!e.target.value.trim()) {
+                    setIsWalkIn(true);
+                    setCustomerName("Walk-In Customer");
+                    setCustomerPhone("");
+                    void fetchSuggestions("");
+                  }
+                }}
+                onKeyDown={handleNameKeyDown}
+                className="flex-1 min-w-0 text-sm font-medium text-gray-700 bg-transparent outline-none placeholder:text-gray-500"
+              />
+            </div>
 
             {customerDropdownOpen && (
               <div className="absolute top-full left-0 z-[999] mt-1 bg-white border border-gray-200 rounded-xl shadow-2xl p-3 w-72">
-                <div className="flex gap-2 mb-3">
-                  <button
-                    onClick={() => { setIsWalkIn(true); setCustomerName("Walk-In Customer"); setCustomerPhone(""); setCustomerDropdownOpen(false); }}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 ${isWalkIn ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"}`}
-                  >Walk-In</button>
-                  <button
-                    onClick={() => { setIsWalkIn(false); if (customerName === "Walk-In Customer") setCustomerName(""); setTimeout(() => nameInputRef.current?.focus(), 50); }}
-                    className={`flex-1 py-2.5 rounded-xl text-sm font-semibold border transition-all active:scale-95 ${!isWalkIn ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"}`}
-                  >Named Customer</button>
-                </div>
+                <button
+                  onClick={() => { setIsWalkIn(true); setCustomerName("Walk-In Customer"); setCustomerPhone(""); setShowSuggestions(false); setSuggestions([]); setCustomerDropdownOpen(false); }}
+                  className={`w-full py-2.5 mb-2 rounded-xl text-sm font-semibold border transition-all active:scale-95 ${isWalkIn ? "bg-blue-600 text-white border-blue-600" : "bg-gray-50 text-gray-600 border-gray-200 hover:bg-gray-100"}`}
+                >Walk-In Customer</button>
 
-                {!isWalkIn && (
-                  <div className="space-y-2">
-                    <input ref={nameInputRef} type="text" value={customerName} onChange={(e) => handleCustomerNameChange(e.target.value)} onFocus={() => { if (customerName || customerPhone) setShowSuggestions(true); }} onKeyDown={handleNameKeyDown} placeholder="Customer name..." autoComplete="off"
-                      className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300" />
+                <div className="space-y-2">
+                  {!isWalkIn && (
                     <div className="flex gap-2">
                       <input type="text" value={customerPhone} onChange={(e) => handleCustomerPhoneChange(e.target.value)} onFocus={() => { if (customerPhone || customerName) setShowSuggestions(true); }} placeholder="Phone number..."
                         className="flex-1 text-sm border border-gray-200 rounded-xl px-3 py-2.5 focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300" />
@@ -453,20 +466,22 @@ export default function Billing() {
                         {isSavingCustomer ? "…" : customerSaved ? "✓ Saved" : "+ Save"}
                       </button>
                     </div>
-                    {showSuggestions && suggestions.length > 0 && (
-                      <div ref={suggestionsRef} className="bg-white border border-gray-200 rounded-xl shadow-xl overflow-y-auto" style={{ maxHeight: "144px" }}>
-                        {suggestions.map((c, i) => (
-                          <button key={i} onMouseDown={() => selectSuggestion(c)} onMouseEnter={() => setActiveIndex(i)} style={{ height: "44px" }}
-                            className={`w-full text-left px-3 flex justify-between items-center border-b border-gray-50 last:border-0 shrink-0 ${i === activeIndex ? "bg-blue-50 text-blue-800" : "hover:bg-gray-50 text-gray-900"}`}>
-                            <span className="text-sm font-semibold truncate">{c.name}</span>
-                            <span className="text-xs text-gray-400 ml-2 shrink-0">{c.phone}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
+                  )}
+                  {showSuggestions && suggestions.length > 0 && (
+                    <div ref={suggestionsRef} className="bg-white border border-gray-200 rounded-xl shadow-xl overflow-y-auto" style={{ maxHeight: "176px" }}>
+                      {suggestions.map((c, i) => (
+                        <button key={c.id ?? i} onMouseDown={() => { setIsWalkIn(false); selectSuggestion(c); setCustomerDropdownOpen(false); }} onMouseEnter={() => setActiveIndex(i)} style={{ height: "44px" }}
+                          className={`w-full text-left px-3 flex justify-between items-center border-b border-gray-50 last:border-0 shrink-0 ${i === activeIndex ? "bg-blue-50 text-blue-800" : "hover:bg-gray-50 text-gray-900"}`}>
+                          <span className="text-sm font-semibold truncate">{c.name}</span>
+                          <span className="text-xs text-gray-400 ml-2 shrink-0">{c.phone}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                  {!isWalkIn && (
                     <button onClick={() => setCustomerDropdownOpen(false)} className="w-full py-2.5 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-[0.99]">Confirm</button>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             )}
           </div>

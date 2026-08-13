@@ -26,6 +26,8 @@ export default function HistoryPage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [receiptSearch, setReceiptSearch] = useState("");
   const [searchActive, setSearchActive] = useState(false);
+  const [showTodaySales, setShowTodaySales] = useState(false);
+  const [showAllTime, setShowAllTime] = useState(false);
 
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printOrder, setPrintOrder] = useState<{
@@ -258,7 +260,7 @@ export default function HistoryPage() {
         />
       )}
 
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">🕐 Order History</h1>
         <div className="flex gap-2">
           <button
@@ -298,6 +300,12 @@ export default function HistoryPage() {
               />
             </svg>
             Orders
+          </button>
+          <button
+            onClick={() => router.push("/settings")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 active:scale-95 transition-all"
+          >
+            Settings
           </button>
         </div>
       </div>
@@ -373,13 +381,24 @@ export default function HistoryPage() {
             )}
           </div>
           {sales && (
-            <div className="flex gap-4 text-sm flex-wrap pt-1 border-t border-gray-100">
+            <div className="flex gap-3 text-sm flex-wrap items-center pt-1 border-t border-gray-100">
               <span className="text-gray-500">
                 Today&apos;s sales:{" "}
-                <span className="font-bold text-gray-900">
-                  Rs. {sales.totalRevenue.toFixed(0)}
-                </span>
+                {showTodaySales ? (
+                  <span className="font-bold text-gray-900">
+                    Rs. {sales.totalRevenue.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="font-bold text-gray-400 tracking-widest">••••</span>
+                )}
               </span>
+              <button
+                type="button"
+                onClick={() => setShowTodaySales((v) => !v)}
+                className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+              >
+                {showTodaySales ? "Hide" : "Show"}
+              </button>
               <span className="text-gray-400">|</span>
               <span className="text-gray-500">
                 Orders:{" "}
@@ -396,10 +415,21 @@ export default function HistoryPage() {
               <span className="text-gray-400">|</span>
               <span className="text-gray-500">
                 All-time:{" "}
-                <span className="font-bold text-gray-900">
-                  Rs. {sales.allTimeRevenue.toFixed(0)}
-                </span>
+                {showAllTime ? (
+                  <span className="font-bold text-gray-900">
+                    Rs. {sales.allTimeRevenue.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="font-bold text-gray-400 tracking-widest">••••</span>
+                )}
               </span>
+              <button
+                type="button"
+                onClick={() => setShowAllTime((v) => !v)}
+                className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+              >
+                {showAllTime ? "Hide" : "Show"}
+              </button>
             </div>
           )}
         </div>

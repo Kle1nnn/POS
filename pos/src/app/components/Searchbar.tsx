@@ -11,7 +11,7 @@ export default function Searchbar({ value, onChange }: SearchbarProps) {
   const router = useRouter();
 
   return (
-    <div className="flex items-center justify-between w-full px-4 pt-3 pb-2">
+    <div className="sticky top-0 z-30 flex items-center justify-between w-full px-4 pt-3 pb-2 bg-[#f0f2f5]">
       <div>
        <div className="font-bold text-xl text-yellow-900 mt-0.5">Tasty Bites Pizza Fast Food and BarBQ Tharushah
         </div>
