@@ -7,6 +7,7 @@ export type AutoBackupSettings = {
   fullEnabled: boolean;
   contactsTime: string; // HH:MM
   fullTime: string; // HH:MM
+  customFolder: string | null; // absolute path; null/empty = default ./backups
   lastContactsDate: string | null; // YYYY-MM-DD local
   lastFullDate: string | null;
   lastContactsAt: string | null; // ISO
@@ -21,6 +22,7 @@ export const DEFAULT_AUTO_BACKUP_SETTINGS: AutoBackupSettings = {
   fullEnabled: false,
   contactsTime: "22:00",
   fullTime: "23:00",
+  customFolder: null,
   lastContactsDate: null,
   lastFullDate: null,
   lastContactsAt: null,
@@ -32,8 +34,25 @@ export const DEFAULT_AUTO_BACKUP_SETTINGS: AutoBackupSettings = {
 
 const KEEP_COUNT = 30;
 
-function backupsRoot() {
+function defaultBackupsRoot() {
   return path.join(process.cwd(), "backups");
+}
+
+/** Normalize and validate an absolute backup folder path. Empty → null (use default). */
+export function normalizeBackupFolder(value: string | null | undefined): string | null {
+  const trimmed = (value ?? "").trim();
+  if (!trimmed) return null;
+  const resolved = path.resolve(trimmed);
+  if (!path.isAbsolute(resolved)) {
+    throw new Error("Backup folder must be an absolute path");
+  }
+  return resolved;
+}
+
+async function resolveBackupsRoot(): Promise<string> {
+  const settings = await getAutoBackupSettings();
+  if (settings.customFolder) return settings.customFolder;
+  return defaultBackupsRoot();
 }
 
 export function normalizeTime(value: string): string | null {
@@ -91,6 +110,10 @@ async function ensureSettingsTable(
     );
   `);
   await client.query(`
+    ALTER TABLE backup_auto_settings
+      ADD COLUMN IF NOT EXISTS custom_folder text;
+  `);
+  await client.query(`
     INSERT INTO backup_auto_settings (id)
     VALUES (1)
     ON CONFLICT (id) DO NOTHING;
@@ -98,11 +121,13 @@ async function ensureSettingsTable(
 }
 
 function rowToSettings(row: Record<string, unknown>): AutoBackupSettings {
+  const folder = row.custom_folder ? String(row.custom_folder).trim() : "";
   return {
     contactsEnabled: Boolean(row.contacts_enabled),
     fullEnabled: Boolean(row.full_enabled),
     contactsTime: String(row.contacts_time || "22:00"),
     fullTime: String(row.full_time || "23:00"),
+    customFolder: folder || null,
     lastContactsDate: row.last_contacts_date
       ? String(row.last_contacts_date).slice(0, 10)
       : null,
@@ -132,6 +157,7 @@ export async function getAutoBackupSettings(): Promise<AutoBackupSettings> {
         full_enabled,
         contacts_time,
         full_time,
+        custom_folder,
         to_char(last_contacts_date, 'YYYY-MM-DD') AS last_contacts_date,
         to_char(last_full_date, 'YYYY-MM-DD') AS last_full_date,
         last_contacts_at,
@@ -155,6 +181,7 @@ export async function updateAutoBackupSettings(input: {
   fullEnabled?: boolean;
   contactsTime?: string;
   fullTime?: string;
+  customFolder?: string | null;
 }): Promise<AutoBackupSettings> {
   const contactsTimeNorm =
     input.contactsTime != null ? normalizeTime(input.contactsTime) : null;
@@ -168,6 +195,15 @@ export async function updateAutoBackupSettings(input: {
     throw new Error("fullTime must be HH:MM");
   }
 
+  const customFolderNorm =
+    input.customFolder !== undefined
+      ? normalizeBackupFolder(input.customFolder)
+      : undefined;
+
+  if (customFolderNorm) {
+    await fs.mkdir(customFolderNorm, { recursive: true });
+  }
+
   const client = await pgPool.connect();
   try {
     await ensureSettingsTable(client);
@@ -178,6 +214,7 @@ export async function updateAutoBackupSettings(input: {
         full_enabled,
         contacts_time,
         full_time,
+        custom_folder,
         to_char(last_contacts_date, 'YYYY-MM-DD') AS last_contacts_date,
         to_char(last_full_date, 'YYYY-MM-DD') AS last_full_date,
         last_contacts_at,
@@ -199,6 +236,10 @@ export async function updateAutoBackupSettings(input: {
       fullEnabled: input.fullEnabled ?? current.fullEnabled,
       contactsTime: contactsTimeNorm ?? current.contactsTime,
       fullTime: fullTimeNorm ?? current.fullTime,
+      customFolder:
+        customFolderNorm !== undefined
+          ? customFolderNorm
+          : current.customFolder,
     };
 
     const result = await client.query(
@@ -208,6 +249,7 @@ export async function updateAutoBackupSettings(input: {
           full_enabled = $2,
           contacts_time = $3,
           full_time = $4,
+          custom_folder = $5,
           updated_at = NOW()
       WHERE id = 1
       RETURNING
@@ -215,6 +257,7 @@ export async function updateAutoBackupSettings(input: {
         full_enabled,
         contacts_time,
         full_time,
+        custom_folder,
         to_char(last_contacts_date, 'YYYY-MM-DD') AS last_contacts_date,
         to_char(last_full_date, 'YYYY-MM-DD') AS last_full_date,
         last_contacts_at,
@@ -228,6 +271,7 @@ export async function updateAutoBackupSettings(input: {
         next.fullEnabled,
         next.contactsTime,
         next.fullTime,
+        next.customFolder,
       ],
     );
     return rowToSettings(result.rows[0]);
@@ -256,7 +300,7 @@ async function pruneOldBackups(dir: string, prefix: string) {
 }
 
 async function writeBackupFile(filename: string, data: unknown) {
-  const dir = backupsRoot();
+  const dir = await resolveBackupsRoot();
   await fs.mkdir(dir, { recursive: true });
   const fullPath = path.join(dir, filename);
   await fs.writeFile(fullPath, JSON.stringify(data, null, 2), "utf8");
@@ -289,7 +333,7 @@ export async function runContactsAutoBackup(): Promise<{
       customers: result.rows,
     };
     const file = await writeBackupFile(filename, payload);
-    await pruneOldBackups(backupsRoot(), "pos-contacts-auto-");
+    await pruneOldBackups(path.dirname(file), "pos-contacts-auto-");
 
     await ensureSettingsTable(client);
     await client.query(
@@ -360,7 +404,7 @@ export async function runFullAutoBackup(): Promise<{
       all_time_sales: allTimeSales.rows,
     };
     const file = await writeBackupFile(filename, payload);
-    await pruneOldBackups(backupsRoot(), "pos-full-auto-");
+    await pruneOldBackups(path.dirname(file), "pos-full-auto-");
 
     await ensureSettingsTable(client);
     await client.query(
@@ -405,7 +449,7 @@ async function setLastError(message: string) {
 }
 
 export async function listRecentAutoBackups(limit = 20) {
-  const dir = backupsRoot();
+  const dir = await resolveBackupsRoot();
   try {
     const entries = await fs.readdir(dir);
     return entries
@@ -430,8 +474,8 @@ export async function listRecentAutoBackups(limit = 20) {
   }
 }
 
-export function getBackupsFolderPath() {
-  return backupsRoot();
+export async function getBackupsFolderPath() {
+  return resolveBackupsRoot();
 }
 
 let tickRunning = false;

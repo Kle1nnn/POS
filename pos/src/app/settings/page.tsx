@@ -11,8 +11,22 @@ import {
   type ReceiptSettings,
 } from "../lib/receipt";
 import { DEFAULT_RECEIPT_SETTINGS } from "../../lib/receipt-settings-shared";
+import {
+  DEFAULT_MENU_APPEARANCE,
+  MENU_FONT_OPTIONS,
+  type MenuAppearanceSettings,
+} from "../../lib/menu-appearance-shared";
 
-type Tab = "contacts" | "catalog" | "reports" | "ledger" | "receipt" | "receiptNumber" | "backup";
+type Tab =
+  | "contacts"
+  | "catalog"
+  | "reports"
+  | "ledger"
+  | "receipt"
+  | "receiptNumber"
+  | "backup"
+  | "menu"
+  | "danger";
 
 type Customer = {
   id: number;
@@ -133,6 +147,7 @@ type AutoBackupSettings = {
   fullEnabled: boolean;
   contactsTime: string;
   fullTime: string;
+  customFolder: string | null;
   lastContactsDate: string | null;
   lastFullDate: string | null;
   lastContactsAt: string | null;
@@ -281,6 +296,7 @@ export default function SettingsPage() {
     fullEnabled: false,
     contactsTime: "22:00",
     fullTime: "23:00",
+    customFolder: null,
     lastContactsDate: null,
     lastFullDate: null,
     lastContactsAt: null,
@@ -290,6 +306,7 @@ export default function SettingsPage() {
     lastError: null,
   });
   const [autoBackupFolder, setAutoBackupFolder] = useState("");
+  const [customFolderDraft, setCustomFolderDraft] = useState("");
   const [autoBackupRecent, setAutoBackupRecent] = useState<AutoBackupRecent[]>(
     [],
   );
@@ -297,6 +314,22 @@ export default function SettingsPage() {
   const [isSavingAutoBackup, setIsSavingAutoBackup] = useState(false);
   const [isRunningAutoContacts, setIsRunningAutoContacts] = useState(false);
   const [isRunningAutoFull, setIsRunningAutoFull] = useState(false);
+
+  // Menu appearance
+  const [menuAppearance, setMenuAppearance] = useState<MenuAppearanceSettings>(
+    DEFAULT_MENU_APPEARANCE,
+  );
+  const [menuAppearanceLoading, setMenuAppearanceLoading] = useState(false);
+  const [isSavingMenuAppearance, setIsSavingMenuAppearance] = useState(false);
+
+  // Danger / wipe all data
+  const [wipeCodeHint, setWipeCodeHint] = useState("****");
+  const [wipeCurrentCode, setWipeCurrentCode] = useState("");
+  const [wipeNewCode, setWipeNewCode] = useState("");
+  const [wipeConfirmNewCode, setWipeConfirmNewCode] = useState("");
+  const [wipeConfirmInput, setWipeConfirmInput] = useState("");
+  const [isSavingWipeCode, setIsSavingWipeCode] = useState(false);
+  const [isWipingData, setIsWipingData] = useState(false);
 
   // Catalog
   const [categories, setCategories] = useState<CustomCategory[]>([]);
@@ -587,7 +620,10 @@ export default function SettingsPage() {
       const res = await fetch("/api/backup/auto");
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to load auto backup");
-      if (data.settings) setAutoBackup(data.settings);
+      if (data.settings) {
+        setAutoBackup(data.settings);
+        setCustomFolderDraft(data.settings.customFolder ?? "");
+      }
       setAutoBackupFolder(data.folder ?? "");
       setAutoBackupRecent(data.recent ?? []);
     } catch (error) {
@@ -607,6 +643,7 @@ export default function SettingsPage() {
     fullEnabled?: boolean;
     contactsTime?: string;
     fullTime?: string;
+    customFolder?: string | null;
   }) => {
     setIsSavingAutoBackup(true);
     try {
@@ -617,7 +654,11 @@ export default function SettingsPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Failed to save auto backup");
-      if (data.settings) setAutoBackup(data.settings);
+      if (data.settings) {
+        setAutoBackup(data.settings);
+        setCustomFolderDraft(data.settings.customFolder ?? "");
+      }
+      if (data.folder) setAutoBackupFolder(data.folder);
       showToast("Auto backup settings saved");
       await loadAutoBackup();
     } catch (error) {
@@ -656,6 +697,144 @@ export default function SettingsPage() {
     } finally {
       if (kind === "contacts") setIsRunningAutoContacts(false);
       else setIsRunningAutoFull(false);
+    }
+  };
+
+  const loadMenuAppearance = useCallback(async () => {
+    setMenuAppearanceLoading(true);
+    try {
+      const res = await fetch("/api/menu-appearance");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load menu style");
+      if (data.settings) setMenuAppearance(data.settings);
+    } catch (error) {
+      console.error("Failed to load menu appearance", error);
+      showToast("Failed to load menu style");
+    } finally {
+      setMenuAppearanceLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "menu") void loadMenuAppearance();
+  }, [tab, loadMenuAppearance]);
+
+  const saveMenuAppearance = async () => {
+    setIsSavingMenuAppearance(true);
+    try {
+      const res = await fetch("/api/menu-appearance", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(menuAppearance),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to save menu style");
+      if (data.settings) setMenuAppearance(data.settings);
+      showToast("Menu style saved");
+    } catch (error) {
+      console.error("Failed to save menu appearance", error);
+      showToast(
+        error instanceof Error ? error.message : "Save menu style failed",
+      );
+    } finally {
+      setIsSavingMenuAppearance(false);
+    }
+  };
+
+  const loadDangerSettings = useCallback(async () => {
+    try {
+      const res = await fetch("/api/danger");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to load wipe settings");
+      setWipeCodeHint(data.hint ?? "****");
+    } catch (error) {
+      console.error("Failed to load danger settings", error);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (tab === "danger") void loadDangerSettings();
+  }, [tab, loadDangerSettings]);
+
+  const saveWipeCode = async () => {
+    if (wipeNewCode.trim().length < 4) {
+      showToast("New code must be at least 4 characters");
+      return;
+    }
+    if (wipeNewCode.trim() !== wipeConfirmNewCode.trim()) {
+      showToast("New code and confirm do not match");
+      return;
+    }
+    setIsSavingWipeCode(true);
+    try {
+      const res = await fetch("/api/danger", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          currentCode: wipeCurrentCode,
+          newCode: wipeNewCode.trim(),
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Failed to set code");
+      setWipeCurrentCode("");
+      setWipeNewCode("");
+      setWipeConfirmNewCode("");
+      showToast("Confirmation code updated");
+      await loadDangerSettings();
+    } catch (error) {
+      console.error("Failed to set wipe code", error);
+      showToast(
+        error instanceof Error ? error.message : "Failed to set code",
+      );
+    } finally {
+      setIsSavingWipeCode(false);
+    }
+  };
+
+  const wipeAllData = async () => {
+    if (!wipeConfirmInput.trim()) {
+      showToast("Enter confirmation code to wipe data");
+      return;
+    }
+    if (
+      !confirm(
+        "This will permanently delete ALL contacts, saved orders, history, balances, and reset receipt numbers. Catalog and receipt branding are kept. Continue?",
+      )
+    ) {
+      return;
+    }
+    if (
+      !confirm(
+        "Final confirmation: wipe all transactional data? This cannot be undone.",
+      )
+    ) {
+      return;
+    }
+
+    setIsWipingData(true);
+    try {
+      const res = await fetch("/api/danger", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationCode: wipeConfirmInput.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Wipe failed");
+      setWipeConfirmInput("");
+      setSavedCustomers([]);
+      setDrafts({});
+      showToast(
+        `Wiped ${data.wiped?.customers ?? 0} contacts, ${data.wiped?.orders ?? 0} orders.`,
+      );
+      window.setTimeout(() => {
+        window.location.reload();
+      }, 600);
+    } catch (error) {
+      console.error("Failed to wipe data", error);
+      showToast(error instanceof Error ? error.message : "Wipe failed");
+    } finally {
+      setIsWipingData(false);
     }
   };
 
@@ -1948,11 +2127,13 @@ export default function SettingsPage() {
             [
               { id: "contacts", label: "Contacts" },
               { id: "catalog", label: "Add Item / Category" },
+              { id: "menu", label: "Menu Style" },
               { id: "reports", label: "Reports" },
               { id: "ledger", label: "Customer Ledger" },
               { id: "receipt", label: "Receipt Settings" },
               { id: "receiptNumber", label: "Receipt Number" },
               { id: "backup", label: "Full Backup" },
+              { id: "danger", label: "Remove All Data" },
             ] as const
           ).map((t) => (
             <button
@@ -1960,8 +2141,12 @@ export default function SettingsPage() {
               onClick={() => setTab(t.id)}
               className={`px-4 py-2 rounded-xl text-sm font-semibold transition-colors ${
                 tab === t.id
-                  ? "bg-gray-900 text-white"
-                  : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
+                  ? t.id === "danger"
+                    ? "bg-red-700 text-white"
+                    : "bg-gray-900 text-white"
+                  : t.id === "danger"
+                    ? "bg-red-50 text-red-800 border border-red-200 hover:bg-red-100"
+                    : "bg-white text-gray-700 border border-gray-200 hover:bg-gray-50"
               }`}
             >
               {t.label}
@@ -2167,6 +2352,9 @@ export default function SettingsPage() {
                   <span className="font-semibold text-gray-900">
                     {savedCustomers.length}
                   </span>
+                  {savedCustomers.length >= 3000
+                    ? " (showing up to 3000)"
+                    : ""}
                   {query.trim()
                     ? ` · Showing ${filteredCustomers.length}`
                     : ""}
@@ -2738,6 +2926,59 @@ export default function SettingsPage() {
           <div className="space-y-4">
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
               <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Custom backup location
+              </p>
+              <p className="text-sm text-gray-500 mb-3">
+                Set an absolute folder path on this PC where auto backups are
+                saved (contacts + full). Leave empty to use the default{" "}
+                <span className="font-mono text-xs">backups</span> folder inside
+                the app.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="flex-1 min-w-[240px]">
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Folder path
+                  </label>
+                  <input
+                    value={customFolderDraft}
+                    onChange={(e) => setCustomFolderDraft(e.target.value)}
+                    placeholder="e.g. D:\POS-Backups"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white font-mono"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void saveAutoBackupSettings({
+                      customFolder: customFolderDraft.trim() || null,
+                    })
+                  }
+                  disabled={isSavingAutoBackup}
+                  className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                >
+                  {isSavingAutoBackup ? "Saving..." : "Save Location"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setCustomFolderDraft("");
+                    void saveAutoBackupSettings({ customFolder: null });
+                  }}
+                  disabled={isSavingAutoBackup}
+                  className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 disabled:opacity-50"
+                >
+                  Use Default
+                </button>
+              </div>
+              {autoBackupFolder && (
+                <p className="text-xs text-gray-400 break-all mt-2">
+                  Active folder: {autoBackupFolder}
+                </p>
+              )}
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
                 Full data backup &amp; restore
               </p>
               <p className="text-sm text-gray-500 mb-4">
@@ -2788,8 +3029,8 @@ export default function SettingsPage() {
                 Auto full backup
               </p>
               <p className="text-sm text-gray-500 mb-3">
-                Automatically save a full backup to the server backups folder
-                every day at the time you set. Keep the POS app running.
+                Automatically save a full backup to the backup folder every day
+                at the time you set. Keep the POS app running.
               </p>
               {autoBackupLoading ? (
                 <p className="text-sm text-gray-500">Loading auto backup...</p>
@@ -2889,6 +3130,318 @@ export default function SettingsPage() {
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        )}
+
+        {tab === "menu" && (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-4">
+            <div>
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                Menu item style
+              </p>
+              <p className="text-sm text-gray-500">
+                Change size, colors, and font for menu tiles on the main screen.
+              </p>
+            </div>
+            {menuAppearanceLoading ? (
+              <p className="text-sm text-gray-500">Loading...</p>
+            ) : (
+              <>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Tile size ({menuAppearance.tileSize}px)
+                    </label>
+                    <input
+                      type="range"
+                      min={60}
+                      max={160}
+                      value={menuAppearance.tileSize}
+                      onChange={(e) =>
+                        setMenuAppearance((prev) => ({
+                          ...prev,
+                          tileSize: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Font size ({menuAppearance.fontSize}px)
+                    </label>
+                    <input
+                      type="range"
+                      min={8}
+                      max={18}
+                      step={0.5}
+                      value={menuAppearance.fontSize}
+                      onChange={(e) =>
+                        setMenuAppearance((prev) => ({
+                          ...prev,
+                          fontSize: Number(e.target.value),
+                        }))
+                      }
+                      className="w-full"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Background color
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={menuAppearance.tileBgColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileBgColor: e.target.value,
+                          }))
+                        }
+                        className="h-10 w-14 rounded border border-gray-200"
+                      />
+                      <input
+                        value={menuAppearance.tileBgColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileBgColor: e.target.value,
+                          }))
+                        }
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Text color
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={menuAppearance.tileTextColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileTextColor: e.target.value,
+                          }))
+                        }
+                        className="h-10 w-14 rounded border border-gray-200"
+                      />
+                      <input
+                        value={menuAppearance.tileTextColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileTextColor: e.target.value,
+                          }))
+                        }
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Border color
+                    </label>
+                    <div className="flex gap-2 items-center">
+                      <input
+                        type="color"
+                        value={menuAppearance.tileBorderColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileBorderColor: e.target.value,
+                          }))
+                        }
+                        className="h-10 w-14 rounded border border-gray-200"
+                      />
+                      <input
+                        value={menuAppearance.tileBorderColor}
+                        onChange={(e) =>
+                          setMenuAppearance((prev) => ({
+                            ...prev,
+                            tileBorderColor: e.target.value,
+                          }))
+                        }
+                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs text-gray-500 mb-1">
+                      Font
+                    </label>
+                    <select
+                      value={menuAppearance.fontFamily}
+                      onChange={(e) =>
+                        setMenuAppearance((prev) => ({
+                          ...prev,
+                          fontFamily: e.target.value,
+                        }))
+                      }
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    >
+                      {MENU_FONT_OPTIONS.map((f) => (
+                        <option key={f.value} value={f.value}>
+                          {f.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                    Preview
+                  </p>
+                  <div className="inline-flex flex-col items-center justify-start border-2 rounded-xl overflow-hidden"
+                    style={{
+                      width: menuAppearance.tileSize,
+                      minHeight: menuAppearance.tileSize,
+                      backgroundColor: menuAppearance.tileBgColor,
+                      borderColor: menuAppearance.tileBorderColor,
+                      fontFamily: menuAppearance.fontFamily,
+                    }}
+                  >
+                    <div
+                      className="w-full flex items-center justify-center bg-[#c8daea]"
+                      style={{ height: Math.round(menuAppearance.tileSize * 0.64) }}
+                    >
+                      <span className="text-2xl">🍔</span>
+                    </div>
+                    <div className="w-full px-1 py-1 text-center">
+                      <span
+                        className="font-bold leading-tight block"
+                        style={{
+                          fontSize: `${menuAppearance.fontSize}px`,
+                          color: menuAppearance.tileTextColor,
+                        }}
+                      >
+                        Sample Item
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void saveMenuAppearance()}
+                    disabled={isSavingMenuAppearance}
+                    className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+                  >
+                    {isSavingMenuAppearance ? "Saving..." : "Save Menu Style"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMenuAppearance({ ...DEFAULT_MENU_APPEARANCE })}
+                    disabled={isSavingMenuAppearance}
+                    className="px-4 py-2 rounded-lg bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 disabled:opacity-50"
+                  >
+                    Reset Defaults
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
+
+        {tab === "danger" && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-red-100 shadow-sm p-4">
+              <p className="text-xs font-semibold text-red-600 uppercase tracking-wide mb-2">
+                Confirmation code
+              </p>
+              <p className="text-sm text-gray-500 mb-3">
+                Required before wiping all data. Current code hint:{" "}
+                <span className="font-mono font-semibold text-gray-800">
+                  {wipeCodeHint}
+                </span>
+                . Default code is <span className="font-mono">1234</span> until
+                you change it.
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Current code
+                  </label>
+                  <input
+                    type="password"
+                    value={wipeCurrentCode}
+                    onChange={(e) => setWipeCurrentCode(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Current code"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    New code
+                  </label>
+                  <input
+                    type="password"
+                    value={wipeNewCode}
+                    onChange={(e) => setWipeNewCode(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Min 4 characters"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">
+                    Confirm new code
+                  </label>
+                  <input
+                    type="password"
+                    value={wipeConfirmNewCode}
+                    onChange={(e) => setWipeConfirmNewCode(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm"
+                    placeholder="Repeat new code"
+                  />
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveWipeCode()}
+                disabled={isSavingWipeCode}
+                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+              >
+                {isSavingWipeCode ? "Saving..." : "Set Confirmation Code"}
+              </button>
+            </div>
+
+            <div className="bg-red-50 rounded-2xl border border-red-200 shadow-sm p-4">
+              <p className="text-xs font-semibold text-red-700 uppercase tracking-wide mb-2">
+                Remove all data
+              </p>
+              <p className="text-sm text-red-800/80 mb-3">
+                Permanently deletes contacts, saved orders, history (checked-out
+                orders), all balances / sales totals, and resets receipt numbering.
+                Catalog items, categories, and receipt branding are kept.
+              </p>
+              <div className="flex flex-wrap items-end gap-3">
+                <div className="min-w-[200px]">
+                  <label className="block text-xs text-red-700/70 mb-1">
+                    Enter confirmation code
+                  </label>
+                  <input
+                    type="password"
+                    value={wipeConfirmInput}
+                    onChange={(e) => setWipeConfirmInput(e.target.value)}
+                    className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm bg-white"
+                    placeholder="Confirmation code"
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void wipeAllData()}
+                  disabled={isWipingData || !wipeConfirmInput.trim()}
+                  className="px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-semibold hover:bg-red-800 disabled:opacity-50"
+                >
+                  {isWipingData ? "Removing..." : "Remove All Data"}
+                </button>
+              </div>
             </div>
           </div>
         )}

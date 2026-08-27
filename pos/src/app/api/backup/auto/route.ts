@@ -15,14 +15,15 @@ startAutoBackupScheduler();
 // GET /api/backup/auto — settings + recent files
 export async function GET() {
   try {
-    const [settings, recent] = await Promise.all([
+    const [settings, recent, folder] = await Promise.all([
       getAutoBackupSettings(),
       listRecentAutoBackups(20),
+      getBackupsFolderPath(),
     ]);
     return NextResponse.json(
       {
         settings,
-        folder: getBackupsFolderPath(),
+        folder,
         recent,
       },
       { status: 200 },
@@ -37,7 +38,7 @@ export async function GET() {
 }
 
 // POST /api/backup/auto
-// body: { contactsEnabled?, fullEnabled?, contactsTime?, fullTime?, run?: "contacts"|"full" }
+// body: { contactsEnabled?, fullEnabled?, contactsTime?, fullTime?, customFolder?, run?: "contacts"|"full" }
 export async function POST(req: NextRequest) {
   try {
     const body = (await req.json().catch(() => ({}))) as {
@@ -45,6 +46,7 @@ export async function POST(req: NextRequest) {
       fullEnabled?: boolean;
       contactsTime?: string;
       fullTime?: string;
+      customFolder?: string | null;
       run?: "contacts" | "full";
     };
 
@@ -83,9 +85,13 @@ export async function POST(req: NextRequest) {
       fullEnabled: body.fullEnabled,
       contactsTime: body.contactsTime,
       fullTime: body.fullTime,
+      customFolder: body.customFolder,
     });
 
-    return NextResponse.json({ success: true, settings }, { status: 200 });
+    return NextResponse.json(
+      { success: true, settings, folder: await getBackupsFolderPath() },
+      { status: 200 },
+    );
   } catch (err) {
     console.error("Failed to update auto backup settings", err);
     return NextResponse.json(

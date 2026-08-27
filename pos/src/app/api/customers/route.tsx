@@ -33,7 +33,7 @@ export async function GET(req: NextRequest) {
           `SELECT id, name, phone
            FROM customers
            ORDER BY created_at DESC, id DESC
-           LIMIT 500`,
+           LIMIT 3000`,
         )
       : await client.query(
           `SELECT id, name, phone

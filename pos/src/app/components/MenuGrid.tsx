@@ -4,6 +4,10 @@ import { useRouter } from "next/navigation";
 import { useCart, makeCartKey } from "../context/CartContext";
 import { products } from "../data/products";
 import type { Product } from "./Product";
+import {
+  DEFAULT_MENU_APPEARANCE,
+  type MenuAppearanceSettings,
+} from "../../lib/menu-appearance-shared";
 
 const BUILTIN_CATEGORY_TILES = [
   { key: "Burger", label: "Burgers", emoji: "🍔", image: "burger.png" },
@@ -49,7 +53,27 @@ export default function MenuGrid({
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
   const [menuProducts, setMenuProducts] = useState<Product[]>(baseProducts);
   const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
+  const [appearance, setAppearance] = useState<MenuAppearanceSettings>(
+    DEFAULT_MENU_APPEARANCE,
+  );
   const lastAutoSkuRef = useRef("");
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/menu-appearance");
+        if (!res.ok) return;
+        const data = await res.json();
+        if (!cancelled && data.settings) setAppearance(data.settings);
+      } catch {
+        /* keep defaults */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -318,6 +342,7 @@ export default function MenuGrid({
             sku={pizza.sku}
             selected={isSelected}
             selectedColor="blue"
+            appearance={appearance}
             onClick={() => togglePizza(pizza.id)}
           />
         );
@@ -333,6 +358,7 @@ export default function MenuGrid({
             fallbackEmoji={cat.emoji}
             selected={isSelected}
             selectedColor="orange"
+            appearance={appearance}
             onClick={() => toggleCategory(cat.key)}
           />
         );
@@ -361,6 +387,7 @@ export default function MenuGrid({
                   sku={p.sku}
                   selected={isSelected}
                   selectedColor="blue"
+                  appearance={appearance}
                   onClick={() =>
                     isPizza ? togglePizza(p.id) : addSimpleProduct(p.id)
                   }
@@ -403,6 +430,7 @@ function Tile({
   fallbackEmoji,
   selected,
   selectedColor,
+  appearance,
   onClick,
 }: {
   label: string;
@@ -411,24 +439,37 @@ function Tile({
   fallbackEmoji?: string;
   selected: boolean;
   selectedColor: "blue" | "orange";
+  appearance: MenuAppearanceSettings;
   onClick: () => void;
 }) {
   const [imgError, setImgError] = useState(false);
+  const size = appearance.tileSize;
+  const imgH = Math.round(size * 0.64);
+  const imgInner = Math.round(size * 0.55);
   const ring = selected
     ? selectedColor === "blue"
       ? "border-[#64b5f6] bg-[#bbdefb]"
       : "border-[#ffb74d] bg-[#ffe0b2]"
-    : "border-[#4a7aa8] bg-[#dce8f5] hover:border-[#90caf9] hover:bg-[#cfe2f7]";
+    : "";
 
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-start border-2 rounded-xl active:scale-95 transition-all overflow-hidden ${ring}`}
-      style={{ width: 90, minHeight: 90 }}
+      className={`flex flex-col items-center justify-start border-2 rounded-xl active:scale-95 transition-all overflow-hidden ${ring || "hover:brightness-95"}`}
+      style={{
+        width: size,
+        minHeight: size,
+        backgroundColor: selected ? undefined : appearance.tileBgColor,
+        borderColor: selected ? undefined : appearance.tileBorderColor,
+        fontFamily: appearance.fontFamily,
+      }}
     >
       <div
-        className="w-full flex items-center justify-center bg-[#c8daea]"
-        style={{ height: 58 }}
+        className="w-full flex items-center justify-center"
+        style={{
+          height: imgH,
+          backgroundColor: selected ? undefined : "#c8daea",
+        }}
       >
         {image && !imgError ? (
           <img
@@ -440,18 +481,31 @@ function Tile({
             alt={label}
             onError={() => setImgError(true)}
             className="object-contain"
-            style={{ width: 50, height: 50 }}
+            style={{ width: imgInner, height: imgInner }}
           />
         ) : (
           <span className="text-2xl">{fallbackEmoji ?? "🍽️"}</span>
         )}
       </div>
       <div className="w-full px-1 py-1 text-center">
-        <span className="text-[0.72rem] font-bold text-[#1a3a5c] leading-tight line-clamp-2 block">
+        <span
+          className="font-bold leading-tight line-clamp-2 block"
+          style={{
+            fontSize: `${appearance.fontSize}px`,
+            color: appearance.tileTextColor,
+            fontFamily: appearance.fontFamily,
+          }}
+        >
           {label}
         </span>
         {sku ? (
-          <span className="text-[0.58rem] text-gray-500 font-medium block truncate">
+          <span
+            className="font-medium block truncate opacity-70"
+            style={{
+              fontSize: `${Math.max(8, appearance.fontSize - 2)}px`,
+              color: appearance.tileTextColor,
+            }}
+          >
             {sku}
           </span>
         ) : null}
