@@ -29,6 +29,7 @@ function mapRow(row: Record<string, unknown>): CatalogProductRow {
     hasSauceOptions:
       row.has_sauce_options == null ? null : Boolean(row.has_sauce_options),
     sku: ((row.sku as string) ?? "").trim(),
+    barcode: ((row.barcode as string) ?? "").trim(),
     stock: row.stock == null ? null : Number(row.stock),
     isDeleted: Boolean(row.is_deleted),
     createdAt: row.created_at as string | undefined,
@@ -37,7 +38,7 @@ function mapRow(row: Record<string, unknown>): CatalogProductRow {
 
 const PRODUCT_SELECT = `id, name, description, base_price, image, category,
             size_prices, sizes, has_extra_toppings, has_sauce_options,
-            sku, stock, is_deleted, created_at`;
+            sku, barcode, stock, is_deleted, created_at`;
 
 async function loadOverrideRows(
   client: Awaited<ReturnType<typeof pgPool.connect>>,
@@ -100,7 +101,9 @@ export async function POST(req: NextRequest) {
       description?: string;
       image?: string;
       sku?: string;
+      barcode?: string;
       stock?: number | string | null;
+      stockReason?: string;
       sizePrices?: Record<string, number>;
       sizes?: string[];
       hasExtraToppings?: boolean;
@@ -111,6 +114,7 @@ export async function POST(req: NextRequest) {
     const category = body.category?.trim();
     const basePrice = Number(body.basePrice);
     const sku = body.sku?.trim() || "";
+    const barcode = body.barcode?.trim() || "";
     const stock = parseStock(body.stock);
 
     if (!name) {
@@ -147,12 +151,28 @@ export async function POST(req: NextRequest) {
     await ensureCatalogTables();
     client = await pgPool.connect();
 
+    if (barcode) {
+      const overrides = await loadOverrideRows(client);
+      const activeProducts = mergeMenuProducts(overrides).filter(
+        (p) => !p.isDeleted,
+      );
+      const duplicate = activeProducts.find(
+        (p) => (p.barcode || "").trim().toLowerCase() === barcode.toLowerCase(),
+      );
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Barcode "${barcode}" is already assigned to "${duplicate.name}"` },
+          { status: 409 },
+        );
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO custom_products (
          id, name, description, base_price, image, category,
          size_prices, sizes, has_extra_toppings, has_sauce_options,
-         sku, stock, is_deleted
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false)
+         sku, barcode, stock, is_deleted
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false)
        RETURNING ${PRODUCT_SELECT}`,
       [
         id,
@@ -166,9 +186,25 @@ export async function POST(req: NextRequest) {
         body.hasExtraToppings ?? null,
         body.hasSauceOptions ?? null,
         sku,
+        barcode,
         stock,
       ],
     );
+
+    if (stock !== null) {
+      const { recordInventoryLog } = await import("../../../../lib/inventory");
+      await recordInventoryLog(client, {
+        productId: id,
+        productName: name,
+        sku,
+        barcode,
+        previousStock: null,
+        newStock: stock,
+        quantityChange: stock,
+        reason: body.stockReason?.trim() || "Initial stock",
+        source: "catalog_create",
+      });
+    }
 
     return NextResponse.json(
       { product: { ...mapRow(result.rows[0]), source: "custom" } },
@@ -197,7 +233,9 @@ export async function PATCH(req: NextRequest) {
       description?: string;
       image?: string;
       sku?: string;
+      barcode?: string;
       stock?: number | string | null;
+      stockReason?: string;
       sizePrices?: Record<string, number> | null;
       sizes?: string[] | null;
       hasExtraToppings?: boolean | null;
@@ -209,6 +247,7 @@ export async function PATCH(req: NextRequest) {
     const category = body.category?.trim();
     const basePrice = Number(body.basePrice);
     const sku = body.sku?.trim() || "";
+    const barcode = body.barcode?.trim() || "";
     const stock = parseStock(body.stock);
 
     if (!id) {
@@ -255,12 +294,34 @@ export async function PATCH(req: NextRequest) {
     await ensureCatalogTables();
     client = await pgPool.connect();
 
+    const overrides = await loadOverrideRows(client);
+    const previousMerged = mergeMenuProducts(overrides).find((p) => p.id === id);
+    const prevStock: number | null =
+      previousMerged && previousMerged.stock != null
+        ? Number(previousMerged.stock)
+        : null;
+
+    if (barcode) {
+      const activeProducts = mergeMenuProducts(overrides).filter(
+        (p) => !p.isDeleted && p.id !== id,
+      );
+      const duplicate = activeProducts.find(
+        (p) => (p.barcode || "").trim().toLowerCase() === barcode.toLowerCase(),
+      );
+      if (duplicate) {
+        return NextResponse.json(
+          { error: `Barcode "${barcode}" is already assigned to "${duplicate.name}"` },
+          { status: 409 },
+        );
+      }
+    }
+
     const result = await client.query(
       `INSERT INTO custom_products (
          id, name, description, base_price, image, category,
          size_prices, sizes, has_extra_toppings, has_sauce_options,
-         sku, stock, is_deleted, updated_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,false,NOW())
+         sku, barcode, stock, is_deleted, updated_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,false,NOW())
        ON CONFLICT (id) DO UPDATE SET
          name = EXCLUDED.name,
          description = EXCLUDED.description,
@@ -272,6 +333,7 @@ export async function PATCH(req: NextRequest) {
          has_extra_toppings = EXCLUDED.has_extra_toppings,
          has_sauce_options = EXCLUDED.has_sauce_options,
          sku = EXCLUDED.sku,
+         barcode = EXCLUDED.barcode,
          stock = EXCLUDED.stock,
          is_deleted = false,
          updated_at = NOW()
@@ -288,9 +350,42 @@ export async function PATCH(req: NextRequest) {
         hasExtraToppings,
         hasSauceOptions,
         sku,
+        barcode,
         stock,
       ],
     );
+
+    if (prevStock !== stock) {
+      const { recordInventoryLog } = await import("../../../../lib/inventory");
+      let qtyChange = 0;
+      if (stock != null && prevStock != null) {
+        qtyChange = stock - prevStock;
+      } else if (stock != null && prevStock == null) {
+        qtyChange = stock;
+      } else if (stock == null && prevStock != null) {
+        qtyChange = -prevStock;
+      }
+      const autoReason =
+        stock === null && prevStock !== null
+          ? "Stock tracking removed (Unlimited)"
+          : prevStock === null && stock !== null
+            ? "Initial stock set"
+            : qtyChange > 0
+              ? "Restock"
+              : "Stock adjustment";
+
+      await recordInventoryLog(client, {
+        productId: id,
+        productName: name,
+        sku,
+        barcode,
+        previousStock: prevStock,
+        newStock: stock,
+        quantityChange: qtyChange,
+        reason: body.stockReason?.trim() || autoReason,
+        source: qtyChange > 0 ? "restock" : "catalog_edit",
+      });
+    }
 
     return NextResponse.json(
       {

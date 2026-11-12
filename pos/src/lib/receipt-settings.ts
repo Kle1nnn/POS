@@ -37,6 +37,10 @@ export function ensureReceiptSettingsTable(): Promise<void> {
           ALTER TABLE receipt_settings
             ADD COLUMN IF NOT EXISTS receipt_next_number integer NOT NULL DEFAULT 1;
         `);
+        await client.query(`
+          ALTER TABLE receipt_settings
+            ADD COLUMN IF NOT EXISTS auto_print_on_checkout boolean NOT NULL DEFAULT false;
+        `);
 
         const existing = await client.query(
           `SELECT id FROM receipt_settings WHERE id = 1`,
@@ -46,8 +50,8 @@ export function ensureReceiptSettingsTable(): Promise<void> {
             `INSERT INTO receipt_settings
               (id, store_name, store_address, store_phones, logo_image,
                payment_title, payment_image, payment_line,
-               receipt_prefix, receipt_next_number)
-             VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+               receipt_prefix, receipt_next_number, auto_print_on_checkout)
+             VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
             [
               DEFAULT_RECEIPT_SETTINGS.storeName,
               DEFAULT_RECEIPT_SETTINGS.storeAddress,
@@ -58,6 +62,7 @@ export function ensureReceiptSettingsTable(): Promise<void> {
               DEFAULT_RECEIPT_SETTINGS.paymentLine,
               DEFAULT_RECEIPT_SETTINGS.receiptPrefix,
               DEFAULT_RECEIPT_SETTINGS.receiptNextNumber,
+              DEFAULT_RECEIPT_SETTINGS.autoPrintOnCheckout,
             ],
           );
         }
@@ -79,6 +84,7 @@ export function mapReceiptSettings(row: {
   payment_line: string;
   receipt_prefix?: string | null;
   receipt_next_number?: number | null;
+  auto_print_on_checkout?: boolean | null;
 }): ReceiptSettings {
   const nextNum = Number(row.receipt_next_number);
   return {
@@ -96,6 +102,7 @@ export function mapReceiptSettings(row: {
       Number.isFinite(nextNum) && nextNum >= 1
         ? Math.floor(nextNum)
         : DEFAULT_RECEIPT_SETTINGS.receiptNextNumber,
+    autoPrintOnCheckout: Boolean(row.auto_print_on_checkout),
   };
 }
 
@@ -106,7 +113,7 @@ export async function loadReceiptSettings(): Promise<ReceiptSettings> {
     const result = await client.query(
       `SELECT store_name, store_address, store_phones, logo_image,
               payment_title, payment_image, payment_line,
-              receipt_prefix, receipt_next_number
+              receipt_prefix, receipt_next_number, auto_print_on_checkout
        FROM receipt_settings WHERE id = 1`,
     );
     if (!result.rowCount) return { ...DEFAULT_RECEIPT_SETTINGS };

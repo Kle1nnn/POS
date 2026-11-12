@@ -30,15 +30,11 @@ async function ensureTables(client: Awaited<ReturnType<typeof pgPool.connect>>) 
 
 function isBackupPayload(data: unknown): data is BackupPayload {
   if (!data || typeof data !== "object") return false;
-  const b = data as BackupPayload;
+  const b = data as Record<string, unknown>;
   return (
-    b.version === BACKUP_VERSION &&
-    Array.isArray(b.store_state) &&
-    Array.isArray(b.customers) &&
-    Array.isArray(b.orders) &&
-    Array.isArray(b.order_items) &&
-    Array.isArray(b.daily_sales) &&
-    Array.isArray(b.all_time_sales)
+    Array.isArray(b.orders) ||
+    Array.isArray(b.customers) ||
+    Array.isArray(b.store_state)
   );
 }
 
@@ -153,7 +149,15 @@ export async function POST(req: NextRequest) {
     await client.query(`DELETE FROM all_time_sales`);
     await client.query(`DELETE FROM store_state`);
 
-    for (const row of body.store_state) {
+    const payload = body as unknown as Record<string, unknown[]>;
+    const storeStateRows = Array.isArray(payload.store_state) ? payload.store_state : [];
+    const customerRows = Array.isArray(payload.customers) ? payload.customers : [];
+    const orderRows = Array.isArray(payload.orders) ? payload.orders : [];
+    const orderItemRows = Array.isArray(payload.order_items) ? payload.order_items : [];
+    const dailySalesRows = Array.isArray(payload.daily_sales) ? payload.daily_sales : [];
+    const allTimeSalesRows = Array.isArray(payload.all_time_sales) ? payload.all_time_sales : [];
+
+    for (const row of storeStateRows as any[]) {
       await client.query(
         `INSERT INTO store_state (id, current_business_date, opened_at, closed_at)
          VALUES ($1, $2, $3, $4)`,
@@ -161,7 +165,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    for (const row of body.customers) {
+    for (const row of customerRows as any[]) {
       await client.query(
         `INSERT INTO customers (id, name, phone, created_at)
          VALUES ($1, $2, $3, COALESCE($4::timestamptz, NOW()))`,
@@ -169,7 +173,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    for (const row of body.orders) {
+    for (const row of orderRows as any[]) {
       await client.query(
         `INSERT INTO orders (
            id, order_code, status, total, notes, instructions,
@@ -194,7 +198,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    for (const row of body.order_items) {
+    for (const row of orderItemRows as any[]) {
       await client.query(
         `INSERT INTO order_items (
            id, order_id, product_id, product_name, category,
@@ -215,7 +219,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    for (const row of body.daily_sales) {
+    for (const row of dailySalesRows as any[]) {
       await client.query(
         `INSERT INTO daily_sales (sale_date, total_revenue, total_orders, total_items, updated_at)
          VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()))`,
@@ -229,7 +233,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    for (const row of body.all_time_sales) {
+    for (const row of allTimeSalesRows as any[]) {
       await client.query(
         `INSERT INTO all_time_sales (id, total_revenue, total_orders, total_items, updated_at)
          VALUES ($1, $2, $3, $4, COALESCE($5::timestamptz, NOW()))`,

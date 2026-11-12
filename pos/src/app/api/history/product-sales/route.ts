@@ -2,12 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { pgPool } from "../../../../lib/db";
 
 export async function GET(req: NextRequest) {
-  const businessDate = req.nextUrl.searchParams.get("businessDate")?.trim();
+  let businessDate = req.nextUrl.searchParams.get("businessDate")?.trim();
   if (!businessDate) {
-    return NextResponse.json(
-      { error: "businessDate is required" },
-      { status: 400 },
-    );
+    businessDate = new Date().toISOString().slice(0, 10);
   }
 
   let client;
@@ -26,7 +23,10 @@ export async function GET(req: NextRequest) {
        FROM order_items oi
        INNER JOIN orders o ON o.id = oi.order_id
        WHERE o.status = 'checkedout'
-         AND o.business_date = $1::date
+         AND (
+           o.business_date = $1::date
+           OR (o.business_date IS NULL AND COALESCE(o.checked_out_at, o.created_at)::date = $1::date)
+         )
        GROUP BY
          oi.product_name,
          oi.category,

@@ -76,12 +76,24 @@ export async function GET() {
   }
 }
 
+function extractCustomersList(data: unknown): Record<string, unknown>[] | null {
+  if (!data) return null;
+  if (Array.isArray(data)) return data;
+  if (typeof data === "object") {
+    const obj = data as Record<string, unknown>;
+    if (Array.isArray(obj.customers)) return obj.customers as Record<string, unknown>[];
+    if (Array.isArray(obj.data)) return obj.data as Record<string, unknown>[];
+  }
+  return null;
+}
+
 // POST /api/customers/backup — restore contacts only
 export async function POST(req: NextRequest) {
   let client;
   try {
     const body = (await req.json()) as unknown;
-    if (!isContactsBackupPayload(body)) {
+    const customers = extractCustomersList(body);
+    if (!customers) {
       return NextResponse.json(
         { error: "Invalid contacts backup file format" },
         { status: 400 },
@@ -94,12 +106,19 @@ export async function POST(req: NextRequest) {
 
     await client.query(`DELETE FROM customers`);
 
-    for (const row of body.customers) {
+    let idx = 1;
+    for (const row of customers) {
+      const id = row.id != null ? Number(row.id) : idx;
+      const name = String(row.name || "Customer");
+      const phone = String(row.phone || "");
+      const createdAt = row.created_at ? String(row.created_at) : new Date().toISOString();
+
       await client.query(
         `INSERT INTO customers (id, name, phone, created_at)
          VALUES ($1, $2, $3, COALESCE($4::timestamptz, NOW()))`,
-        [row.id, row.name, row.phone ?? "", row.created_at ?? null],
+        [id, name, phone, createdAt],
       );
+      idx = Math.max(idx, id + 1);
     }
 
     await resetCustomersSequence(client);
@@ -108,7 +127,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(
       {
         success: true,
-        restored: { customers: body.customers.length },
+        restored: { customers: customers.length },
       },
       { status: 200 },
     );

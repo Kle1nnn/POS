@@ -39,6 +39,7 @@ export async function PUT(req: NextRequest) {
       paymentLine: string;
       receiptPrefix: string;
       receiptNextNumber: number | string;
+      autoPrintOnCheckout: boolean;
     }>;
 
     const current = await loadReceiptSettings();
@@ -80,6 +81,10 @@ export async function PUT(req: NextRequest) {
           ? Math.floor(parsedNext)
           : current.receiptNextNumber
         : current.receiptNextNumber;
+    const autoPrintOnCheckout =
+      body.autoPrintOnCheckout !== undefined
+        ? Boolean(body.autoPrintOnCheckout)
+        : current.autoPrintOnCheckout;
 
     await ensureReceiptSettingsTable();
     client = await pgPool.connect();
@@ -88,8 +93,8 @@ export async function PUT(req: NextRequest) {
       `INSERT INTO receipt_settings
          (id, store_name, store_address, store_phones, logo_image,
           payment_title, payment_image, payment_line,
-          receipt_prefix, receipt_next_number, updated_at)
-       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, NOW())
+          receipt_prefix, receipt_next_number, auto_print_on_checkout, updated_at)
+       VALUES (1, $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NOW())
        ON CONFLICT (id) DO UPDATE SET
          store_name = EXCLUDED.store_name,
          store_address = EXCLUDED.store_address,
@@ -100,10 +105,11 @@ export async function PUT(req: NextRequest) {
          payment_line = EXCLUDED.payment_line,
          receipt_prefix = EXCLUDED.receipt_prefix,
          receipt_next_number = EXCLUDED.receipt_next_number,
+         auto_print_on_checkout = EXCLUDED.auto_print_on_checkout,
          updated_at = NOW()
        RETURNING store_name, store_address, store_phones, logo_image,
                  payment_title, payment_image, payment_line,
-                 receipt_prefix, receipt_next_number`,
+                 receipt_prefix, receipt_next_number, auto_print_on_checkout`,
       [
         storeName,
         storeAddress,
@@ -114,6 +120,7 @@ export async function PUT(req: NextRequest) {
         paymentLine,
         receiptPrefix,
         receiptNextNumber,
+        autoPrintOnCheckout,
       ],
     );
 

@@ -37,6 +37,7 @@ export type EditingOrderSnapshot = {
   orderType?: string;
   tableNumber?: number | null;
   createdAt?: string;
+  items?: CartItem[];
 };
 
 type OrdersContextType = {
@@ -64,6 +65,7 @@ type OrdersContextType = {
     customerPhone?: string,
     orderType?: string,
     tableNumber?: number | null,
+    status?: OrderStatus,
   ) => void;
   reloadSavedOrders: () => Promise<void>;
   editingOrder: EditingOrderSnapshot | null;
@@ -159,9 +161,11 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     try {
       const res = await fetch("/api/orders/list");
       if (!res.ok) return;
-      const data = (await res.json()) as {
-        orders: Parameters<typeof mapApiOrders>[0];
+      if (!res.headers.get("content-type")?.includes("application/json")) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        orders?: Parameters<typeof mapApiOrders>[0];
       };
+      if (!data || !Array.isArray(data.orders)) return;
       const mapped = mapApiOrders(data.orders ?? []);
       seedCounter(mapped, _receiptPrefix);
       setOrders(mapped);
@@ -242,6 +246,7 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
     customerPhone?: string,
     orderType?: string,
     tableNumber?: number | null,
+    status?: OrderStatus,
   ) => {
     setOrders((prev) =>
       prev.map((o) =>
@@ -256,6 +261,15 @@ export function OrdersProvider({ children }: { children: ReactNode }) {
               customerPhone,
               orderType,
               tableNumber,
+              ...(status
+                ? {
+                    status,
+                    checkedOutAt:
+                      status === "saved"
+                        ? undefined
+                        : (o.checkedOutAt || new Date().toISOString()),
+                  }
+                : {}),
             }
           : o,
       ),

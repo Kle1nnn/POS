@@ -5,6 +5,12 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import PrintModal from "./PrintModal";
 import { CartItem } from "../context/CartContext";
+import {
+  getShortcuts,
+  SHORTCUTS_CHANGED_EVENT,
+  type ShortcutsMap,
+  DEFAULT_SHORTCUTS,
+} from "../../lib/shortcuts";
 
 type OrderType = "Delivery" | "Dine In" | "Take Away";
 type Customer = { id?: number; name: string; phone: string };
@@ -21,6 +27,7 @@ export default function Billing() {
   const {
     saveOrder,
     checkoutOrder,
+    deleteOrder,
     updateOrder,
     editingOrder,
     editingOrderId,
@@ -33,6 +40,12 @@ export default function Billing() {
   const [notes, setNotes] = useState("");
   const [instructions, setInstructions] = useState("");
   const [updating, setUpdating] = useState(false);
+  const [catalogStockMap, setCatalogStockMap] = useState<
+    Map<string, number | null>
+  >(() => new Map());
+  const [catalogBarcodeMap, setCatalogBarcodeMap] = useState<
+    Map<string, string>
+  >(() => new Map());
   const [orderType, setOrderType] = useState<OrderType>("Delivery");
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [orderTypeOpen, setOrderTypeOpen] = useState(false);
@@ -50,22 +63,94 @@ export default function Billing() {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
-
   const [printModalOpen, setPrintModalOpen] = useState(false);
-  const [pendingOrderId, setPendingOrderId] = useState("");
-  const [pendingItems, setPendingItems] = useState<CartItem[]>([]);
-  const [pendingTotal, setPendingTotal] = useState(0);
-  const [pendingNotes, setPendingNotes] = useState("");
-  const [pendingInstructions, setPendingInstructions] = useState("");
-  const [pendingIsPaid, setPendingIsPaid] = useState(false);
-  const [pendingCustomer, setPendingCustomer] = useState<Customer>({ name: "", phone: "" });
-  const [pendingOrderType, setPendingOrderType] = useState<OrderType>("Delivery");
-  const [pendingTableNumber, setPendingTableNumber] = useState<number | null>(null);
-  const [pendingPlacedAt, setPendingPlacedAt] = useState<string | null>(null);
+  const [printOrderData, setPrintOrderData] = useState<{
+    id: string;
+    items: CartItem[];
+    total: number;
+    notes: string;
+    instructions: string;
+    isPaid: boolean;
+    customer: Customer;
+    orderType: OrderType;
+    tableNumber: number | null;
+    placedAt: string;
+    destination?: "/Orders" | "/History";
+  } | null>(null);
+
+  const openPrintDialog = (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes: string,
+    instructions: string,
+    isPaid: boolean,
+    customer: Customer,
+    orderType: OrderType,
+    tableNumber: number | null,
+    placedAt: string,
+    destination?: "/Orders" | "/History",
+  ) => {
+    setPrintOrderData({
+      id: orderId,
+      items: [...items],
+      total,
+      notes,
+      instructions,
+      isPaid,
+      customer,
+      orderType,
+      tableNumber,
+      placedAt,
+      destination,
+    });
+    setPrintModalOpen(true);
+  };
+
+  const handleClosePrintModal = () => {
+    const dest = printOrderData?.destination;
+    setPrintModalOpen(false);
+    setPrintOrderData(null);
+    if (dest) {
+      router.push(dest);
+    }
+  };
+  const [mounted, setMounted] = useState(false);
   const [now, setNow] = useState(() => new Date());
-  const minuteIntervalRef = useRef<number | null>(null);
 
   const isEditMode = !!editingOrderId;
+
+  const refreshCatalogStock = useCallback(async () => {
+    try {
+      const res = await fetch("/api/catalog/products?menu=1");
+      if (!res.ok) return;
+      const data = await res.json().catch(() => ({}));
+      const stockMap = new Map<string, number | null>();
+      const barcodeMap = new Map<string, string>();
+      for (const p of data.products ?? []) {
+        stockMap.set(String(p.id), p.stock == null ? null : Number(p.stock));
+        if (p.barcode) {
+          barcodeMap.set(String(p.id), String(p.barcode));
+        }
+      }
+      setCatalogStockMap(stockMap);
+      setCatalogBarcodeMap(barcodeMap);
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
+    setMounted(true);
+    void refreshCatalogStock();
+    const onCatalogUpdated = () => {
+      void refreshCatalogStock();
+    };
+    window.addEventListener("catalog-updated", onCatalogUpdated);
+    return () => {
+      window.removeEventListener("catalog-updated", onCatalogUpdated);
+    };
+  }, [refreshCatalogStock]);
 
   useEffect(() => {
     if (!editingOrder) return;
@@ -115,20 +200,11 @@ export default function Billing() {
   }, [activeIndex]);
 
   useEffect(() => {
-    const msUntilNextMinute =
-      (60 - new Date().getSeconds()) * 1000 - new Date().getMilliseconds();
-    const firstTick = window.setTimeout(() => {
+    const timer = window.setInterval(() => {
       setNow(new Date());
-      minuteIntervalRef.current = window.setInterval(() => {
-        setNow(new Date());
-      }, 60_000);
-    }, msUntilNextMinute);
-
+    }, 1000);
     return () => {
-      window.clearTimeout(firstTick);
-      if (minuteIntervalRef.current !== null) {
-        window.clearInterval(minuteIntervalRef.current);
-      }
+      window.clearInterval(timer);
     };
   }, []);
 
@@ -183,30 +259,6 @@ export default function Billing() {
     } catch { } finally { setIsSavingCustomer(false); }
   };
 
-  const openPrintModal = (
-    orderId: string,
-    items: CartItem[],
-    total: number,
-    notes: string,
-    instructionsValue: string,
-    isPaid: boolean,
-    customer: Customer,
-    type: OrderType,
-    tableNum: number | null,
-    placedAt?: string | null,
-  ) => {
-    setPendingOrderId(orderId);
-    setPendingItems([...items]);
-    setPendingTotal(total);
-    setPendingNotes(notes);
-    setPendingInstructions(instructionsValue);
-    setPendingIsPaid(isPaid);
-    setPendingCustomer(customer);
-    setPendingOrderType(type);
-    setPendingTableNumber(tableNum);
-    setPendingPlacedAt(placedAt ?? new Date().toISOString());
-    setPrintModalOpen(true);
-  };
 
   const showToast = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 2500); };
 
@@ -253,7 +305,69 @@ export default function Billing() {
     }
   };
 
-  const finishEdit = (
+  const [shortcuts, setShortcuts] = useState<ShortcutsMap>(DEFAULT_SHORTCUTS);
+
+  useEffect(() => {
+    setShortcuts(getShortcuts());
+    const onShortcutsChange = (e: Event) => {
+      const customEvent = e as CustomEvent<ShortcutsMap>;
+      if (customEvent.detail) setShortcuts(customEvent.detail);
+      else setShortcuts(getShortcuts());
+    };
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, onShortcutsChange);
+    return () => window.removeEventListener(SHORTCUTS_CHANGED_EVENT, onShortcutsChange);
+  }, []);
+
+  const originalEditingQtyByProduct = useCallback(() => {
+    const map = new Map<string, number>();
+    if (!editingOrder?.items) return map;
+    for (const item of editingOrder.items) {
+      const id = String(item.id || "").trim();
+      if (!id) continue;
+      map.set(id, (map.get(id) ?? 0) + (Number(item.quantity) || 0));
+    }
+    return map;
+  }, [editingOrder]);
+
+  const getAvailableStockForCartItem = useCallback(
+    (productId: string, fallbackStock?: number | null): number | null => {
+      const hasLive = catalogStockMap.has(productId);
+      const raw = hasLive
+        ? catalogStockMap.get(productId)
+        : (fallbackStock ?? null);
+      if (raw == null) return null;
+      const editAllowance = originalEditingQtyByProduct().get(productId) ?? 0;
+      return Math.max(0, Number(raw) + editAllowance);
+    },
+    [catalogStockMap, originalEditingQtyByProduct],
+  );
+
+  const handleIncrementQuantity = (item: CartItem) => {
+    const cap = getAvailableStockForCartItem(item.id, item.stock);
+    if (cap !== null) {
+      if (cap <= 0) {
+        showToast(`${item.name} is out of stock (0 remaining).`);
+        return;
+      }
+      const totalUsed = cartItems
+        .filter((ci) => ci.id === item.id)
+        .reduce((sum, ci) => sum + ci.quantity, 0);
+      if (totalUsed + 1 > cap) {
+        showToast(`Only ${cap} in stock for ${item.name}.`);
+        return;
+      }
+    }
+    const res = updateQuantity(item.cartKey, item.quantity + 1, cap);
+    if (!res.ok) {
+      showToast(
+        res.reason === "out_of_stock"
+          ? `${item.name} is out of stock (0 remaining).`
+          : `Only ${res.available} in stock for ${item.name}.`,
+      );
+    }
+  };
+
+  const finishEdit = async (
     snap: { id: string; items: CartItem[]; total: number; notes: string; instructions: string },
     cust: Customer,
     isPaid: boolean,
@@ -262,7 +376,7 @@ export default function Billing() {
     const placedAt = editingOrder?.createdAt ?? new Date().toISOString();
     setEditingOrder(null);
     resetForm();
-    openPrintModal(
+    openPrintDialog(
       snap.id,
       snap.items,
       snap.total,
@@ -273,17 +387,18 @@ export default function Billing() {
       orderType,
       tableNumber,
       placedAt,
+      destination,
     );
-    router.push(destination);
   };
 
-  /** Save edit — keeps or moves order to the saved (unpaid) list. */
+  /** Save edit — moves order to Saved Orders (status: 'saved') and navigates to /Orders. */
   const handleEditSave = async () => {
     if (cartItems.length === 0 || !editingOrderId || !editingOrder) return;
     setUpdating(true);
     try {
-      const wasCheckedOut = editingOrder.status === "checkedout";
-      await patchEditingOrder(wasCheckedOut ? "saved" : undefined);
+      // User requirement: When editing ANY order (including cash orders), clicking Save moves it to saved orders!
+      await patchEditingOrder("saved");
+      window.dispatchEvent(new Event("catalog-updated"));
 
       const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName.trim();
       const snap = {
@@ -295,25 +410,23 @@ export default function Billing() {
       };
       const cust = { name: finalCustomerName, phone: customerPhone.trim() };
 
-      if (wasCheckedOut) {
-        await reloadSavedOrders();
-      } else {
-        updateOrder(
-          editingOrderId,
-          snap.items,
-          snap.total,
-          snap.notes,
-          snap.instructions,
-          finalCustomerName,
-          cust.phone,
-          orderType,
-          orderType === "Dine In" ? tableNumber : null,
-        );
-      }
-
-      showToast(wasCheckedOut ? "Order moved to saved list" : "Order saved!");
-      finishEdit(snap, cust, false, "/Orders");
+      updateOrder(
+        editingOrderId,
+        snap.items,
+        snap.total,
+        snap.notes,
+        snap.instructions,
+        finalCustomerName,
+        cust.phone,
+        orderType,
+        orderType === "Dine In" ? tableNumber : null,
+        "saved",
+      );
+      void reloadSavedOrders();
+      showToast("Order moved to Saved Orders!");
+      await finishEdit(snap, cust, false, "/Orders");
     } catch (error) {
+      window.dispatchEvent(new Event("catalog-updated"));
       showToast(
         `Save failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
@@ -322,13 +435,14 @@ export default function Billing() {
     }
   };
 
-  /** Pay — checkout (or keep checked out) after editing. */
+  /** Pay — keeps or moves order to Cash / History (status: 'checkedout') and navigates to /History. */
   const handleEditPay = async () => {
     if (cartItems.length === 0 || !editingOrderId || !editingOrder) return;
     setUpdating(true);
     try {
       const wasSaved = editingOrder.status === "saved";
-      await patchEditingOrder();
+      await patchEditingOrder("checkedout");
+      window.dispatchEvent(new Event("catalog-updated"));
 
       const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName.trim();
       const snap = {
@@ -351,11 +465,25 @@ export default function Billing() {
           console.error("Failed to checkout order", error);
         }
         checkoutOrder(editingOrderId);
+      } else {
+        updateOrder(
+          editingOrderId,
+          snap.items,
+          snap.total,
+          snap.notes,
+          snap.instructions,
+          finalCustomerName,
+          cust.phone,
+          orderType,
+          orderType === "Dine In" ? tableNumber : null,
+          "checkedout",
+        );
       }
-
-      showToast(wasSaved ? "Order checked out!" : "Order updated!");
-      finishEdit(snap, cust, true, "/History");
+      void reloadSavedOrders();
+      showToast(wasSaved ? "Order checked out!" : "Order saved in Cash / History!");
+      await finishEdit(snap, cust, true, "/History");
     } catch (error) {
+      window.dispatchEvent(new Event("catalog-updated"));
       showToast(
         `Pay failed: ${error instanceof Error ? error.message : "unknown error"}`,
       );
@@ -369,46 +497,270 @@ export default function Billing() {
     resetForm();
   };
 
+  const validateCartStockBeforeOrder = (): string | null => {
+    const qtyByProd = new Map<string, { name: string; qty: number; fallbackStock?: number | null }>();
+    for (const item of cartItems) {
+      const existing = qtyByProd.get(item.id);
+      if (existing) {
+        existing.qty += item.quantity;
+      } else {
+        qtyByProd.set(item.id, {
+          name: item.name,
+          qty: item.quantity,
+          fallbackStock: item.stock,
+        });
+      }
+    }
+    for (const [id, entry] of qtyByProd.entries()) {
+      const cap = getAvailableStockForCartItem(id, entry.fallbackStock);
+      if (cap !== null && cap <= 0) {
+        return `${entry.name} is out of stock (0 remaining).`;
+      }
+      if (cap !== null && entry.qty > cap) {
+        return `Only ${cap} left in stock for ${entry.name}.`;
+      }
+    }
+    return null;
+  };
+
   const handleSaveOrder = async () => {
-    if (cartItems.length === 0) return;
-    const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
-    const createdAtClient = new Date().toISOString();
-    const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
+    if (cartItems.length === 0 || updating) return;
+    const stockIssue = validateCartStockBeforeOrder();
+    if (stockIssue) {
+      showToast(stockIssue);
+      return;
+    }
+    setUpdating(true);
     try {
-      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, instructions, customerName: finalCustomerName, customerPhone, orderType, tableNumber, createdAtClient }) });
-    } catch (error) { console.error("Failed to persist saved order", error); }
-    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
-    const cust = { name: finalCustomerName, phone: customerPhone };
-    resetForm(); showToast("Order saved!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, false, cust, orderType, tableNumber, createdAtClient);
+      const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
+      const createdAtClient = new Date().toISOString();
+      const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderCode: orderId,
+          items: buildItems(),
+          total: totalPrice,
+          notes,
+          instructions,
+          customerName: finalCustomerName,
+          customerPhone,
+          orderType,
+          tableNumber,
+          createdAtClient,
+        }),
+      });
+      if (!res.ok) {
+        const errData = (await res.json().catch(() => ({}))) as { error?: string };
+        deleteOrder(orderId);
+        void reloadSavedOrders();
+        window.dispatchEvent(new Event("catalog-updated"));
+        showToast(errData.error || "Failed to save order");
+        return;
+      }
+      window.dispatchEvent(new Event("catalog-updated"));
+      const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
+      const cust = { name: finalCustomerName, phone: customerPhone };
+      resetForm();
+      showToast("💾 Order saved!");
+      openPrintDialog(
+        orderId,
+        snap.items,
+        snap.total,
+        snap.notes,
+        snap.instructions,
+        false,
+        cust,
+        orderType,
+        tableNumber,
+        createdAtClient,
+      );
+    } catch (error) {
+      console.error("Failed to persist saved order", error);
+      void reloadSavedOrders();
+      showToast("Failed to save order");
+    } finally {
+      setUpdating(false);
+    }
   };
 
   const handleCheckout = async () => {
-    if (cartItems.length === 0) return;
-    const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
-    const createdAtClient = new Date().toISOString();
-    const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
-    // Save order to DB first (as "saved"), then immediately checkout — separate catches
-    // so a failure in one doesn't silently skip the other
+    if (cartItems.length === 0 || updating) return;
+    const stockIssue = validateCartStockBeforeOrder();
+    if (stockIssue) {
+      showToast(stockIssue);
+      return;
+    }
+    setUpdating(true);
     try {
-      await fetch("/api/orders", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId, items: buildItems(), total: totalPrice, notes, instructions, customerName: finalCustomerName, customerPhone, orderType, tableNumber, createdAtClient }) });
-    } catch (error) { console.error("Failed to persist order", error); }
-    try {
-      await fetch("/api/orders/checkout", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderCode: orderId }) });
-    } catch (error) { console.error("Failed to checkout order", error); }
-    checkoutOrder(orderId);
-    const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
-    const cust = { name: finalCustomerName, phone: customerPhone };
-    resetForm(); showToast("Order checked out!");
-    openPrintModal(snap.id, snap.items, snap.total, snap.notes, snap.instructions, true, cust, orderType, tableNumber, createdAtClient);
+      const finalCustomerName = isWalkIn ? "Walk-In Customer" : customerName;
+      const createdAtClient = new Date().toISOString();
+      const orderId = saveOrder([...cartItems], totalPrice, notes, instructions, finalCustomerName, customerPhone, orderType, tableNumber);
+      const res = await fetch("/api/orders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          orderCode: orderId,
+          items: buildItems(),
+          total: totalPrice,
+          notes,
+          instructions,
+          customerName: finalCustomerName,
+          customerPhone,
+          orderType,
+          tableNumber,
+          createdAtClient,
+        }),
+      });
+      if (!res.ok) {
+        const errData = (await res.json().catch(() => ({}))) as { error?: string };
+        deleteOrder(orderId);
+        void reloadSavedOrders();
+        window.dispatchEvent(new Event("catalog-updated"));
+        showToast(errData.error || "Failed to place order");
+        return;
+      }
+      try {
+        await fetch("/api/orders/checkout", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderCode: orderId }),
+        });
+      } catch (error) {
+        console.error("Failed to checkout order", error);
+      }
+      checkoutOrder(orderId);
+      window.dispatchEvent(new Event("catalog-updated"));
+      const snap = { id: orderId, items: [...cartItems], total: totalPrice, notes, instructions };
+      const cust = { name: finalCustomerName, phone: customerPhone };
+      resetForm();
+      showToast("✅ Order checked out!");
+      openPrintDialog(
+        orderId,
+        snap.items,
+        snap.total,
+        snap.notes,
+        snap.instructions,
+        true,
+        cust,
+        orderType,
+        tableNumber,
+        createdAtClient,
+      );
+    } catch (error) {
+      console.error("Failed to persist order", error);
+      showToast("Checkout failed");
+    } finally {
+      setUpdating(false);
+    }
   };
 
-  const currentDate = `${String(now.getDate()).padStart(2,"0")}-${String(now.getMonth()+1).padStart(2,"0")}-${now.getFullYear()}`;
-  const currentTime = `${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+  // Global keyboard shortcuts (configured in Settings > Shortcuts)
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      // Don't trigger if user is typing in an input or textarea
+      const targetTag = (e.target as HTMLElement)?.tagName?.toLowerCase();
+      const isInput = targetTag === "input" || targetTag === "textarea" || (e.target as HTMLElement)?.isContentEditable;
+      if (isInput && !e.altKey && !e.ctrlKey) return;
+
+      const key = e.key.toLowerCase();
+      const match = (cfg: { key: string; altKey: boolean; ctrlKey: boolean }) =>
+        key === cfg.key.toLowerCase() &&
+        Boolean(e.altKey) === Boolean(cfg.altKey) &&
+        Boolean(e.ctrlKey) === Boolean(cfg.ctrlKey);
+
+      if (match(shortcuts.newOrder)) {
+        e.preventDefault();
+        if (isEditMode) {
+          handleCancelEdit();
+        } else {
+          clearCart();
+          resetForm();
+        }
+        showToast("New order ready");
+        router.push("/");
+      } else if (match(shortcuts.saveOrder)) {
+        e.preventDefault();
+        if (cartItems.length === 0) {
+          showToast("Cart is empty! Add items first.");
+          return;
+        }
+        if (isEditMode) {
+          void handleEditSave();
+        } else {
+          void handleSaveOrder();
+        }
+      } else if (match(shortcuts.payOrder)) {
+        e.preventDefault();
+        if (cartItems.length === 0) {
+          showToast("Cart is empty! Add items first.");
+          return;
+        }
+        if (isEditMode) {
+          void handleEditPay();
+        } else {
+          void handleCheckout();
+        }
+      } else if (match(shortcuts.history)) {
+        e.preventDefault();
+        router.push("/History");
+      } else if (match(shortcuts.orders)) {
+        e.preventDefault();
+        router.push("/Orders");
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [
+    shortcuts,
+    isEditMode,
+    cartItems,
+    customerName,
+    customerPhone,
+    isWalkIn,
+    notes,
+    instructions,
+    orderType,
+    tableNumber,
+    editingOrderId,
+    editingOrder,
+    updating,
+    router,
+    clearCart,
+    resetForm,
+    handleEditSave,
+    handleEditPay,
+    handleSaveOrder,
+    handleCheckout,
+  ]);
+
+  const currentDate = mounted
+    ? `${String(now.getDate()).padStart(2, "0")}-${String(now.getMonth() + 1).padStart(2, "0")}-${now.getFullYear()}`
+    : "";
+  const currentTime = mounted
+    ? `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`
+    : "";
 
   return (
     <aside className="w-[340px] flex-shrink-0 h-screen bg-white flex flex-col border-r border-gray-200 shadow-sm">
-      <PrintModal isOpen={printModalOpen} onClose={() => setPrintModalOpen(false)} cartItems={pendingItems} totalPrice={pendingTotal} notes={pendingNotes} instructions={pendingInstructions} orderId={pendingOrderId} isPaid={pendingIsPaid} customer={pendingCustomer} orderType={pendingOrderType} tableNumber={pendingTableNumber} placedAt={pendingPlacedAt} />
+      {printOrderData && (
+        <PrintModal
+          isOpen={printModalOpen}
+          onClose={handleClosePrintModal}
+          cartItems={printOrderData.items}
+          totalPrice={printOrderData.total}
+          notes={printOrderData.notes}
+          instructions={printOrderData.instructions}
+          orderId={printOrderData.id}
+          isPaid={printOrderData.isPaid}
+          customer={printOrderData.customer}
+          orderType={printOrderData.orderType}
+          tableNumber={printOrderData.tableNumber}
+          placedAt={printOrderData.placedAt}
+        />
+      )}
 
       {toast && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 bg-gray-900 text-white text-sm px-4 py-2.5 rounded-xl shadow-lg">{toast}</div>
@@ -420,8 +772,23 @@ export default function Billing() {
         <div className="flex items-center gap-2">
           {/* Customer dropdown */}
           <div className="relative flex-1" ref={customerDropdownRef}>
-            <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-colors w-full shadow-sm">
-              <span className="text-base flex-shrink-0">👤</span>
+            <div
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 transition-colors w-full shadow-sm"
+              style={{
+                paddingLeft: "4px",
+                paddingRight: "9px",
+                paddingTop: "7px",
+                marginLeft: "-2px",
+                paddingBottom: "7px",
+                width: "195.613px",
+              }}
+            >
+              <span
+                className="text-base flex-shrink-0"
+                style={{ backgroundColor: "#f1f1f1" }}
+              >
+                👤
+              </span>
               <input
                 ref={nameInputRef}
                 type="text"
@@ -487,9 +854,32 @@ export default function Billing() {
           </div>
 
           {/* Date/time */}
-          <div className="flex items-center gap-1 px-1.5 py-2.5 rounded-xl bg-gray-50 border border-gray-300 text-xs text-gray-500 whitespace-nowrap flex-shrink-0">
-            <span>📅</span>
-            <span>{currentDate} {currentTime}</span>
+          <div
+            suppressHydrationWarning
+            className="flex items-center gap-0.5 px-1 py-2.5 rounded-xl bg-gray-50 border border-gray-300 text-xs text-gray-500 whitespace-nowrap flex-shrink-0"
+            style={{
+              width: "124.113px",
+              height: "35.6px",
+              fontSize: "14px",
+              fontWeight: "bold",
+              marginLeft: "-2px",
+            }}
+          >
+            <span className="text-[10px] leading-none flex-shrink-0">📅</span>
+            <span
+              suppressHydrationWarning
+              className="tabular-nums tracking-tighter"
+              style={{
+                height: "14.5px",
+                fontSize: "11.5px",
+                fontWeight: "bold",
+                lineHeight: "12.5px",
+                textAlign: "left",
+                fontStyle: "normal",
+              }}
+            >
+              {mounted ? `${currentDate} ${currentTime}` : "\u00A0"}
+            </span>
           </div>
 
 
@@ -588,8 +978,17 @@ export default function Billing() {
                         <span className="text-gray-400 font-normal"> · {item.selectedSize}</span>
                       )}
                     </p>
-                    {item.sku ? (
-                      <p className="text-[0.65rem] text-gray-400 mt-0.5">SKU: {item.sku}</p>
+                    {item.sku || item.barcode || catalogBarcodeMap.get(item.id) ? (
+                      <p className="text-[0.65rem] text-gray-400 mt-0.5 font-mono">
+                        {[
+                          item.sku ? `SKU: ${item.sku}` : null,
+                          item.barcode || catalogBarcodeMap.get(item.id)
+                            ? `Barcode: ${item.barcode || catalogBarcodeMap.get(item.id)}`
+                            : null,
+                        ]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </p>
                     ) : null}
                     {((item.selectedTopping && item.selectedTopping !== "None") || (item.selectedSauce && item.selectedSauce !== "None")) && (
                       <div className="flex gap-1 flex-wrap mt-0.5">
@@ -622,9 +1021,9 @@ export default function Billing() {
                       onClick={() => updateQuantity(item.cartKey, item.quantity - 1)}
                       className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-red-50 hover:text-red-500 text-base font-bold flex items-center justify-center text-gray-600 transition-colors active:scale-95"
                     >−</button>
-                    <span className="text-sm font-bold text-gray-800 w-5 text-center">{item.quantity}</span>
+                    <span className="text-sm font-bold text-gray-800 w-5 text-center tabular-nums">{item.quantity}</span>
                     <button
-                      onClick={() => updateQuantity(item.cartKey, item.quantity + 1)}
+                      onClick={() => handleIncrementQuantity(item)}
                       className="w-8 h-8 rounded-lg bg-gray-100 hover:bg-green-50 hover:text-green-600 text-base font-bold flex items-center justify-center text-gray-600 transition-colors active:scale-95"
                     >+</button>
                   </div>
@@ -670,41 +1069,54 @@ export default function Billing() {
               <button
                 onClick={handleEditSave}
                 disabled={cartItems.length === 0 || updating}
-                className="py-3.5 rounded-xl bg-gray-800 text-white text-sm font-bold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
+                className="py-3 rounded-xl bg-gray-800 text-white text-xs font-bold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] flex flex-col items-center justify-center gap-0.5"
+                title={`Save (${shortcuts.saveOrder.label})`}
               >
-                {updating ? "…" : "💾 Save"}
+                <span>{updating ? "…" : "💾 Save"}</span>
+                <span className="text-[10px] text-gray-400 font-mono font-normal">{shortcuts.saveOrder.label}</span>
               </button>
               <button
                 onClick={handleEditPay}
                 disabled={cartItems.length === 0 || updating}
-                className="py-3.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]"
+                className="py-3 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] flex flex-col items-center justify-center gap-0.5"
+                title={`Pay (${shortcuts.payOrder.label})`}
               >
-                {updating ? "…" : "✅ Pay"}
+                <span>{updating ? "…" : "✅ Pay"}</span>
+                <span className="text-[10px] text-amber-200 font-mono font-normal">{shortcuts.payOrder.label}</span>
               </button>
             </div>
             <p className="text-[0.65rem] text-gray-400 text-center leading-snug">
-              Save moves a cashed order back to the saved list. Pay keeps it completed.
+              Saving updates the order and opens the receipt.
             </p>
             <button
               onClick={handleCancelEdit}
-              className="w-full bg-gray-100 text-gray-600 py-3 rounded-xl hover:bg-gray-200 transition-colors text-sm font-semibold active:scale-[0.99]"
+              className="w-full bg-gray-100 text-gray-600 py-2.5 rounded-xl hover:bg-gray-200 transition-colors text-xs font-semibold active:scale-[0.99] flex items-center justify-center gap-1.5"
+              title={`Cancel Edit / New Order (${shortcuts.newOrder.label})`}
             >
-              Cancel Edit
+              <span>Cancel Edit</span>
+              <kbd className="text-[10px] bg-gray-200 px-1.5 py-0.5 rounded font-mono">{shortcuts.newOrder.label}</kbd>
             </button>
           </div>
         ) : (
           <div className="grid grid-cols-3 gap-2">
             <button onClick={clearCart}
-              className="py-3.5 rounded-xl bg-gray-100 text-gray-600 text-sm font-semibold hover:bg-gray-200 transition-colors active:scale-[0.99]">
-              Clear
+              disabled={updating}
+              className="py-2.5 rounded-xl bg-gray-100 text-gray-600 text-xs font-semibold hover:bg-gray-200 transition-colors disabled:opacity-40 active:scale-[0.99] flex flex-col items-center justify-center gap-0.5"
+              title={`New Order / Clear (${shortcuts.newOrder.label})`}>
+              <span>Clear</span>
+              <span className="text-[10px] text-gray-400 font-mono font-normal">{shortcuts.newOrder.label}</span>
             </button>
-            <button onClick={handleSaveOrder} disabled={cartItems.length === 0}
-              className="py-3.5 rounded-xl bg-gray-800 text-white text-sm font-bold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]">
-              💾 Save
+            <button onClick={handleSaveOrder} disabled={cartItems.length === 0 || updating}
+              className="py-2.5 rounded-xl bg-gray-800 text-white text-xs font-bold hover:bg-gray-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] flex flex-col items-center justify-center gap-0.5"
+              title={`Save Order (${shortcuts.saveOrder.label})`}>
+              <span>{updating ? "…" : "💾 Save"}</span>
+              <span className="text-[10px] text-gray-400 font-mono font-normal">{shortcuts.saveOrder.label}</span>
             </button>
-            <button onClick={handleCheckout} disabled={cartItems.length === 0}
-              className="py-3.5 rounded-xl bg-amber-600 text-white text-sm font-bold hover:bg-amber-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99]">
-              ✅ Pay
+            <button onClick={handleCheckout} disabled={cartItems.length === 0 || updating}
+              className="py-2.5 rounded-xl bg-amber-600 text-white text-xs font-bold hover:bg-amber-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.99] flex flex-col items-center justify-center gap-0.5"
+              title={`Pay / Checkout (${shortcuts.payOrder.label})`}>
+              <span>{updating ? "…" : "✅ Pay"}</span>
+              <span className="text-[10px] text-amber-200 font-mono font-normal">{shortcuts.payOrder.label}</span>
             </button>
           </div>
         )}

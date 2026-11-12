@@ -5,6 +5,9 @@ async function ensureInstructionsColumn(client: any) {
   await client.query(
     `ALTER TABLE orders ADD COLUMN IF NOT EXISTS instructions text`,
   );
+  await client.query(
+    `ALTER TABLE IF EXISTS order_items ADD COLUMN IF NOT EXISTS product_key text NULL`,
+  );
 }
 
 export async function GET(req: NextRequest) {
@@ -30,7 +33,7 @@ export async function GET(req: NextRequest) {
           COALESCE(
             json_agg(
               json_build_object(
-                'id', oi.product_id,
+                'id', COALESCE(NULLIF(oi.product_key, ''), oi.product_id::text),
                 'name', oi.product_name,
                 'category', oi.category,
                 'selectedSize', oi.selected_size,

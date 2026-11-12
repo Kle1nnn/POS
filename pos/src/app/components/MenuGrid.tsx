@@ -1,7 +1,7 @@
 "use client";
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useCart, makeCartKey } from "../context/CartContext";
+import { useOrders } from "../context/OrdersContext";
 import { products } from "../data/products";
 import type { Product } from "./Product";
 import {
@@ -44,19 +44,71 @@ type Selection =
 export default function MenuGrid({
   searchQuery = "",
   onSearchChange,
+  barcodeSearchEnabled = true,
+  scanSubmitCount = 0,
 }: {
   searchQuery?: string;
   onSearchChange?: (value: string) => void;
+  barcodeSearchEnabled?: boolean;
+  scanSubmitCount?: number;
 }) {
-  const { addToCart } = useCart();
-  const router = useRouter();
+  const { cartItems, addToCart } = useCart();
+  const { editingOrder } = useOrders();
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
   const [menuProducts, setMenuProducts] = useState<Product[]>(baseProducts);
   const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
   const [appearance, setAppearance] = useState<MenuAppearanceSettings>(
     DEFAULT_MENU_APPEARANCE,
   );
-  const lastAutoSkuRef = useRef("");
+  const [toast, setToast] = useState<{
+    message: string;
+    tone: "error" | "success" | "info";
+  } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+  const lastAutoMatchRef = useRef("");
+  const debounceTimerRef = useRef<number | null>(null);
+  const lastScanSubmitCountRef = useRef(scanSubmitCount);
+  const barcodePendingPizzaIdRef = useRef<string | null>(null);
+
+  const recordBarcodeScanEvent = useCallback((product: Product) => {
+    void fetch("/api/catalog/inventory", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productId: product.id,
+        barcode: product.barcode || "",
+        mode: "scan_event",
+        scanEvent: true,
+      }),
+      keepalive: true,
+    }).catch(() => {
+      /* non-blocking barcode scan audit log */
+    });
+  }, []);
+
+  const showNotice = useCallback(
+    (message: string, tone: "error" | "success" | "info" = "info") => {
+      setToast({ message, tone });
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+      toastTimerRef.current = window.setTimeout(() => {
+        setToast(null);
+      }, 2800);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current !== null) {
+        window.clearTimeout(toastTimerRef.current);
+      }
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,81 +127,124 @@ export default function MenuGrid({
     };
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [productsRes, categoriesRes] = await Promise.all([
-          fetch("/api/catalog/products?menu=1"),
-          fetch("/api/catalog/categories"),
-        ]);
-        if (!productsRes.ok || !categoriesRes.ok) return;
-        const productsData = await productsRes.json();
-        const categoriesData = await categoriesRes.json();
-        if (cancelled) return;
-
-        setMenuProducts(
-          (productsData.products ?? []).map(
-            (p: {
-              id: string;
-              name: string;
-              description: string;
-              basePrice: number;
-              image: string;
-              category: string;
-              sizePrices?: Record<string, number> | null;
-              sizes?: string[] | null;
-              hasExtraToppings?: boolean | null;
-              hasSauceOptions?: boolean | null;
-              sku?: string | null;
-              stock?: number | null;
-            }) => ({
-              id: p.id,
-              name: p.name,
-              description: p.description || p.name,
-              basePrice: Number(p.basePrice),
-              image: p.image || "deals.png",
-              category: p.category,
-              ...(p.sizePrices ? { sizePrices: p.sizePrices } : {}),
-              ...(p.sizes ? { sizes: p.sizes } : {}),
-              ...(p.hasExtraToppings != null
-                ? { hasExtraToppings: !!p.hasExtraToppings }
-                : {}),
-              ...(p.hasSauceOptions != null
-                ? { hasSauceOptions: !!p.hasSauceOptions }
-                : {}),
-              ...(p.sku ? { sku: String(p.sku).trim() } : {}),
-              ...(p.stock != null && Number.isFinite(Number(p.stock))
-                ? { stock: Number(p.stock) }
-                : {}),
-            }),
-          ),
-        );
-        setCustomCategories(
-          (categoriesData.categories ?? []).map(
-            (c: {
-              name: string;
-              label: string;
-              emoji: string;
-              image: string;
-            }) => ({
-              key: c.name,
-              label: c.label || c.name,
-              emoji: c.emoji || "📦",
-              image: c.image || "deals.png",
-            }),
-          ),
-        );
-      } catch (error) {
-        console.error("Failed to load custom catalog", error);
+  const loadCatalog = useCallback(async () => {
+    try {
+      const [productsRes, categoriesRes] = await Promise.all([
+        fetch("/api/catalog/products?menu=1"),
+        fetch("/api/catalog/categories"),
+      ]);
+      if (!productsRes.ok || !categoriesRes.ok) return;
+      const pType = productsRes.headers.get("content-type") || "";
+      const cType = categoriesRes.headers.get("content-type") || "";
+      if (
+        !pType.includes("application/json") ||
+        !cType.includes("application/json")
+      ) {
+        return;
       }
-    })();
-    return () => {
-      cancelled = true;
-    };
+      const productsData = await productsRes.json().catch(() => ({}));
+      const categoriesData = await categoriesRes.json().catch(() => ({}));
+
+      setMenuProducts(
+        (productsData.products ?? []).map(
+          (p: {
+            id: string;
+            name: string;
+            description: string;
+            basePrice: number;
+            image: string;
+            category: string;
+            sizePrices?: Record<string, number> | null;
+            sizes?: string[] | null;
+            hasExtraToppings?: boolean | null;
+            hasSauceOptions?: boolean | null;
+            sku?: string | null;
+            barcode?: string | null;
+            stock?: number | null;
+          }) => ({
+            id: p.id,
+            name: p.name,
+            description: p.description || p.name,
+            basePrice: Number(p.basePrice),
+            image: p.image || "deals.png",
+            category: p.category,
+            ...(p.sizePrices ? { sizePrices: p.sizePrices } : {}),
+            ...(p.sizes ? { sizes: p.sizes } : {}),
+            ...(p.hasExtraToppings != null
+              ? { hasExtraToppings: !!p.hasExtraToppings }
+              : {}),
+            ...(p.hasSauceOptions != null
+              ? { hasSauceOptions: !!p.hasSauceOptions }
+              : {}),
+            ...(p.sku ? { sku: String(p.sku).trim() } : {}),
+            ...(p.barcode ? { barcode: String(p.barcode).trim() } : {}),
+            ...(p.stock != null && Number.isFinite(Number(p.stock))
+              ? { stock: Number(p.stock) }
+              : {}),
+          }),
+        ),
+      );
+      setCustomCategories(
+        (categoriesData.categories ?? []).map(
+          (c: {
+            name: string;
+            label: string;
+            emoji: string;
+            image: string;
+          }) => ({
+            key: c.name,
+            label: c.label || c.name,
+            emoji: c.emoji || "📦",
+            image: c.image || "deals.png",
+          }),
+        ),
+      );
+    } catch (error) {
+      console.error("Failed to load custom catalog", error);
+    }
   }, []);
 
+  useEffect(() => {
+    void loadCatalog();
+    const onCatalogUpdated = () => {
+      void loadCatalog();
+    };
+    window.addEventListener("catalog-updated", onCatalogUpdated);
+    return () => {
+      window.removeEventListener("catalog-updated", onCatalogUpdated);
+    };
+  }, [loadCatalog]);
+
   const allProducts = menuProducts;
+
+  const originalEditingQtyByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!editingOrder?.items) return map;
+    for (const item of editingOrder.items) {
+      const id = String(item.id || "").trim();
+      if (!id) continue;
+      map.set(id, (map.get(id) ?? 0) + (Number(item.quantity) || 0));
+    }
+    return map;
+  }, [editingOrder]);
+
+  const getEffectiveStock = useCallback(
+    (product: Product): number | null => {
+      if (product.stock == null) return null;
+      const baseStock = Number(product.stock);
+      const editAllowance = originalEditingQtyByProduct.get(product.id) ?? 0;
+      return Math.max(0, baseStock + editAllowance);
+    },
+    [originalEditingQtyByProduct],
+  );
+
+  const usedQtyByProduct = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const item of cartItems) {
+      map.set(item.id, (map.get(item.id) ?? 0) + item.quantity);
+    }
+    return map;
+  }, [cartItems]);
 
   const pizzaProducts = useMemo(
     () => allProducts.filter((p) => p.category === "Pizza"),
@@ -179,83 +274,213 @@ export default function MenuGrid({
     return [...mergedBuiltins, ...extras];
   }, [customCategories]);
 
-  const togglePizza = (id: string) =>
-    setSelection((p) =>
-      p.mode === "pizza" && p.productId === id
-        ? { mode: "none" }
-        : { mode: "pizza", productId: id },
-    );
+  const togglePizza = (id: string, viaBarcode = false) => {
+    const product = pizzaProducts.find((p) => p.id === id);
+    if (product) {
+      const cap = getEffectiveStock(product);
+      if (cap !== null && cap <= 0) {
+        showNotice(
+          `${product.name} is out of stock (0 remaining) and cannot be added.`,
+          "error",
+        );
+        return;
+      }
+    }
+    setSelection((p) => {
+      const closing = p.mode === "pizza" && p.productId === id;
+      barcodePendingPizzaIdRef.current = !closing && viaBarcode ? id : null;
+      return closing ? { mode: "none" } : { mode: "pizza", productId: id };
+    });
+  };
 
-  const toggleCategory = (cat: string) =>
+  const toggleCategory = (cat: string) => {
+    barcodePendingPizzaIdRef.current = null;
     setSelection((p) =>
       p.mode === "category" && p.category === cat
         ? { mode: "none" }
         : { mode: "category", category: cat },
     );
+  };
 
   const addPizzaSize = (productId: string, size: string) => {
     const product = pizzaProducts.find((p) => p.id === productId);
     if (!product) return;
-    addToCart({
+    const cap = getEffectiveStock(product);
+    if (cap !== null && cap <= 0) {
+      showNotice(
+        `${product.name} is out of stock (0 remaining) and cannot be added.`,
+        "error",
+      );
+      return;
+    }
+    const result = addToCart({
       ...product,
+      maxStock: cap,
       cartKey: makeCartKey(product.id, size),
       selectedSize: size,
       selectedTopping: "None",
       selectedSauce: "None",
       price: product.sizePrices?.[size] ?? product.basePrice,
     });
+    if (!result.ok) {
+      showNotice(
+        result.reason === "out_of_stock"
+          ? `${product.name} is out of stock (0 remaining).`
+          : `Only ${result.available} in stock for ${product.name}.`,
+        "error",
+      );
+      return;
+    }
+    if (barcodePendingPizzaIdRef.current === product.id) {
+      barcodePendingPizzaIdRef.current = null;
+      recordBarcodeScanEvent(product);
+      showNotice(`Added ${product.name} via barcode`, "success");
+    }
   };
 
-  const addSimpleProduct = (id: string) => {
-    const product = allProducts.find((p) => p.id === id);
-    if (!product) return;
-    addToCart({
-      ...product,
-      cartKey: makeCartKey(product.id),
-      price: product.basePrice,
-    });
-  };
+  const addSimpleProduct = useCallback(
+    (id: string): boolean => {
+      const product = allProducts.find((p) => p.id === id);
+      if (!product) return false;
+      const cap = getEffectiveStock(product);
+      if (cap !== null && cap <= 0) {
+        showNotice(
+          `${product.name} is out of stock (0 remaining) and cannot be added.`,
+          "error",
+        );
+        return false;
+      }
+      const result = addToCart({
+        ...product,
+        maxStock: cap,
+        cartKey: makeCartKey(product.id),
+        price: product.basePrice,
+      });
+      if (!result.ok) {
+        showNotice(
+          result.reason === "out_of_stock"
+            ? `${product.name} is out of stock (0 remaining).`
+            : `Only ${result.available} in stock for ${product.name}.`,
+          "error",
+        );
+        return false;
+      }
+      return true;
+    },
+    [allProducts, getEffectiveStock, addToCart, showNotice],
+  );
 
   const query = searchQuery.trim().toLowerCase();
   const isSearching = query.length > 0;
-  const searchResults = isSearching
-    ? allProducts.filter(
-        (p) =>
-          p.name.toLowerCase().includes(query) ||
-          p.description.toLowerCase().includes(query) ||
-          (p.sku || "").toLowerCase().includes(query),
-      )
-    : [];
+  const searchResults = useMemo(() => {
+    if (!isSearching) return [];
+    return allProducts.filter(
+      (p) =>
+        p.name.toLowerCase().includes(query) ||
+        p.description.toLowerCase().includes(query) ||
+        (p.sku || "").toLowerCase().includes(query) ||
+        (barcodeSearchEnabled &&
+          (p.barcode || "").toLowerCase().includes(query)),
+    );
+  }, [allProducts, isSearching, query, barcodeSearchEnabled]);
 
-  // Exact SKU match → add item to bill (quick entry / barcode)
+  const attemptExactMatch = useCallback(
+    (raw: string, fromEnter: boolean) => {
+      const q = raw.trim().toLowerCase();
+      if (!q) {
+        lastAutoMatchRef.current = "";
+        return;
+      }
+      if (!fromEnter && q === lastAutoMatchRef.current) return;
+
+      const byBarcode = barcodeSearchEnabled
+        ? allProducts.find(
+            (p) => (p.barcode || "").trim().toLowerCase() === q,
+          )
+        : undefined;
+      const exact =
+        byBarcode ??
+        allProducts.find((p) => (p.sku || "").trim().toLowerCase() === q);
+
+      if (!exact) return;
+
+      lastAutoMatchRef.current = q;
+
+      const cap = getEffectiveStock(exact);
+      if (cap !== null && cap <= 0) {
+        showNotice(
+          `${exact.name} is out of stock (0 remaining) and cannot be added.`,
+          "error",
+        );
+        onSearchChange?.("");
+        return;
+      }
+
+      if (exact.category === "Pizza") {
+        const used = usedQtyByProduct.get(exact.id) ?? 0;
+        if (cap !== null && used >= cap) {
+          showNotice(`Only ${cap} in stock for ${exact.name}.`, "error");
+          onSearchChange?.("");
+          return;
+        }
+        barcodePendingPizzaIdRef.current = byBarcode ? exact.id : null;
+        setSelection({ mode: "pizza", productId: exact.id });
+        onSearchChange?.("");
+        return;
+      }
+
+      const added = addSimpleProduct(exact.id);
+      if (added && byBarcode) {
+        recordBarcodeScanEvent(exact);
+        showNotice(`Added ${exact.name} via barcode`, "success");
+      }
+      onSearchChange?.("");
+    },
+    [
+      allProducts,
+      barcodeSearchEnabled,
+      getEffectiveStock,
+      usedQtyByProduct,
+      addSimpleProduct,
+      onSearchChange,
+      recordBarcodeScanEvent,
+      showNotice,
+    ],
+  );
+
+  // Explicit Enter / scanner submit executes immediately without debounce
+  useEffect(() => {
+    if (scanSubmitCount === lastScanSubmitCountRef.current) return;
+    lastScanSubmitCountRef.current = scanSubmitCount;
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    attemptExactMatch(searchQuery, true);
+  }, [scanSubmitCount, searchQuery, attemptExactMatch]);
+
+  // Typed / pasted / scanner-without-Enter auto match after short debounce
   useEffect(() => {
     const raw = searchQuery.trim();
     if (!raw) {
-      lastAutoSkuRef.current = "";
+      lastAutoMatchRef.current = "";
       return;
     }
-    const q = raw.toLowerCase();
-    if (q === lastAutoSkuRef.current) return;
-
-    const exact = allProducts.find(
-      (p) => (p.sku || "").trim().toLowerCase() === q,
-    );
-    if (!exact) return;
-
-    lastAutoSkuRef.current = q;
-
-    if (exact.category === "Pizza") {
-      setSelection({ mode: "pizza", productId: exact.id });
-      return;
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
     }
+    debounceTimerRef.current = window.setTimeout(() => {
+      debounceTimerRef.current = null;
+      attemptExactMatch(searchQuery, false);
+    }, 220);
 
-    addToCart({
-      ...exact,
-      cartKey: makeCartKey(exact.id),
-      price: exact.basePrice,
-    });
-    onSearchChange?.("");
-  }, [searchQuery, allProducts, addToCart, onSearchChange]);
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [searchQuery, attemptExactMatch]);
 
   const selectedPizza =
     selection.mode === "pizza"
@@ -266,65 +491,17 @@ export default function MenuGrid({
       ? allProducts.filter((p) => p.category === selection.category)
       : [];
 
-  const navButtons = (
-    <div className="flex justify-end gap-2 px-3 pb-3 pt-2">
-      <button
-        onClick={() => router.push("/")}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] active:scale-95 transition-all"
-      >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-          />
-        </svg>
-        Menu
-      </button>
-      <button
-        onClick={() => router.push("/Orders")}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#7a4a00] text-white text-sm font-semibold hover:bg-amber-700 active:scale-95 transition-all"
-      >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-          />
-        </svg>
-        Orders
-      </button>
-      <button
-        onClick={() => router.push("/History")}
-        className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a5c2a] text-white text-sm font-semibold hover:bg-green-700 active:scale-95 transition-all"
-      >
-        <svg
-          className="w-4 h-4"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
-        >
-          <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2}
-            d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"
-          />
-        </svg>
-        History
-      </button>
+  const toastBanner = toast && (
+    <div
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold text-white border ${
+        toast.tone === "error"
+          ? "bg-red-700 border-red-800"
+          : toast.tone === "success"
+            ? "bg-emerald-700 border-emerald-800"
+            : "bg-gray-900 border-gray-800"
+      }`}
+    >
+      {toast.message}
     </div>
   );
 
@@ -334,12 +511,14 @@ export default function MenuGrid({
         const isSelected =
           selection.mode === "pizza" && selection.productId === pizza.id;
         const shortName = pizza.name.replace(/ Pizza$/i, "");
+        const effStock = getEffectiveStock(pizza);
         return (
           <Tile
             key={pizza.id}
             label={shortName}
             image="pizzaa.png"
             sku={pizza.sku}
+            stock={effStock}
             selected={isSelected}
             selectedColor="blue"
             appearance={appearance}
@@ -369,6 +548,7 @@ export default function MenuGrid({
   if (isSearching) {
     return (
       <div className="flex flex-col min-h-0">
+        {toastBanner}
         <div className="flex flex-wrap gap-2 p-3 bg-[#1e3a5f] justify-center">
           {searchResults.length === 0 ? (
             <div className="text-center py-16 text-white/60 w-full">
@@ -379,45 +559,71 @@ export default function MenuGrid({
               const isPizza = p.category === "Pizza";
               const isSelected =
                 selection.mode === "pizza" && selection.productId === p.id;
+              const effStock = getEffectiveStock(p);
+              const matchedByBarcode =
+                barcodeSearchEnabled &&
+                Boolean(
+                  p.barcode && p.barcode.trim().toLowerCase().includes(query),
+                );
               return (
                 <Tile
                   key={p.id}
                   label={p.name}
                   image={p.image}
                   sku={p.sku}
+                  barcode={barcodeSearchEnabled ? p.barcode : undefined}
+                  stock={effStock}
                   selected={isSelected}
                   selectedColor="blue"
                   appearance={appearance}
-                  onClick={() =>
-                    isPizza ? togglePizza(p.id) : addSimpleProduct(p.id)
-                  }
+                  onClick={() => {
+                    if (isPizza) {
+                      togglePizza(p.id, matchedByBarcode);
+                    } else if (addSimpleProduct(p.id) && matchedByBarcode) {
+                      recordBarcodeScanEvent(p);
+                      showNotice(`Added ${p.name} via barcode`, "success");
+                    }
+                  }}
                 />
               );
             })
           )}
         </div>
         {selectedPizza && (
-          <SizePicker pizza={selectedPizza} onAdd={addPizzaSize} />
+          <SizePicker
+            pizza={selectedPizza}
+            effectiveStock={getEffectiveStock(selectedPizza)}
+            inCartQty={usedQtyByProduct.get(selectedPizza.id) ?? 0}
+            onAdd={addPizzaSize}
+          />
         )}
-        {navButtons}
       </div>
     );
   }
 
   return (
     <div className="flex flex-col min-h-0">
+      {toastBanner}
       {tileGrid}
       {selection.mode === "pizza" && selectedPizza && (
-        <SizePicker pizza={selectedPizza} onAdd={addPizzaSize} />
+        <SizePicker
+          pizza={selectedPizza}
+          effectiveStock={getEffectiveStock(selectedPizza)}
+          inCartQty={usedQtyByProduct.get(selectedPizza.id) ?? 0}
+          onAdd={addPizzaSize}
+        />
       )}
       {selection.mode === "category" && subItems.length > 0 && (
         <SubItemPanel
           category={selection.category}
-          items={subItems}
-          onAdd={addSimpleProduct}
+          items={subItems.map((item) => ({
+            ...item,
+            effectiveStock: getEffectiveStock(item),
+            inCartQty: usedQtyByProduct.get(item.id) ?? 0,
+          }))}
+          onAdd={(id) => addSimpleProduct(id)}
         />
       )}
-      {navButtons}
     </div>
   );
 }
@@ -427,6 +633,8 @@ function Tile({
   label,
   image,
   sku,
+  barcode,
+  stock,
   fallbackEmoji,
   selected,
   selectedColor,
@@ -436,6 +644,8 @@ function Tile({
   label: string;
   image: string;
   sku?: string;
+  barcode?: string;
+  stock?: number | null;
   fallbackEmoji?: string;
   selected: boolean;
   selectedColor: "blue" | "orange";
@@ -446,6 +656,7 @@ function Tile({
   const size = appearance.tileSize;
   const imgH = Math.round(size * 0.64);
   const imgInner = Math.round(size * 0.55);
+  const isOutOfStock = stock === 0;
   const ring = selected
     ? selectedColor === "blue"
       ? "border-[#64b5f6] bg-[#bbdefb]"
@@ -455,17 +666,26 @@ function Tile({
   return (
     <button
       onClick={onClick}
-      className={`flex flex-col items-center justify-start border-2 rounded-xl active:scale-95 transition-all overflow-hidden ${ring || "hover:brightness-95"}`}
+      aria-disabled={isOutOfStock}
+      className={`relative flex flex-col items-center justify-start border-2 rounded-xl transition-all overflow-hidden ${
+        isOutOfStock
+          ? "opacity-70 grayscale-[40%] cursor-not-allowed"
+          : "active:scale-95"
+      } ${ring || "hover:brightness-95"}`}
       style={{
         width: size,
         minHeight: size,
         backgroundColor: selected ? undefined : appearance.tileBgColor,
-        borderColor: selected ? undefined : appearance.tileBorderColor,
+        borderColor: isOutOfStock
+          ? "#dc2626"
+          : selected
+            ? undefined
+            : appearance.tileBorderColor,
         fontFamily: appearance.fontFamily,
       }}
     >
       <div
-        className="w-full flex items-center justify-center"
+        className="w-full flex items-center justify-center relative"
         style={{
           height: imgH,
           backgroundColor: selected ? undefined : "#c8daea",
@@ -486,6 +706,11 @@ function Tile({
         ) : (
           <span className="text-2xl">{fallbackEmoji ?? "🍽️"}</span>
         )}
+        {isOutOfStock && (
+          <span className="absolute inset-x-0 bottom-0 bg-red-600/95 text-white text-[9px] font-bold uppercase tracking-wider py-0.5 text-center">
+            Out of Stock
+          </span>
+        )}
       </div>
       <div className="w-full px-1 py-1 text-center">
         <span
@@ -498,15 +723,15 @@ function Tile({
         >
           {label}
         </span>
-        {sku ? (
+        {sku || barcode ? (
           <span
-            className="font-medium block truncate opacity-70"
+            className="font-medium block truncate opacity-75 font-mono"
             style={{
               fontSize: `${Math.max(8, appearance.fontSize - 2)}px`,
               color: appearance.tileTextColor,
             }}
           >
-            {sku}
+            {sku || barcode}
           </span>
         ) : null}
       </div>
@@ -517,6 +742,8 @@ function Tile({
 // ── Size picker ───────────────────────────────────────────────────────────
 function SizePicker({
   pizza,
+  effectiveStock,
+  inCartQty,
   onAdd,
 }: {
   pizza: {
@@ -525,24 +752,40 @@ function SizePicker({
     sizePrices?: Record<string, number>;
     sizes?: string[];
   };
+  effectiveStock: number | null;
+  inCartQty: number;
   onAdd: (id: string, size: string) => void;
 }) {
   const sizes = pizza.sizes ?? ["S", "M", "L"];
+  const isOut = effectiveStock === 0;
+  const isAtMax = effectiveStock !== null && inCartQty >= effectiveStock;
+
   return (
     <div className="border-t-2 border-[#1565c0] bg-white">
-      <div className="flex items-center bg-[#1565c0] px-4 py-2">
+      <div className="flex items-center justify-between bg-[#1565c0] px-4 py-2">
         <span className="text-white text-sm font-bold flex-1 text-center">
           {pizza.name}
+          {effectiveStock !== null ? (
+            <span className="ml-2 text-xs font-medium text-blue-100 tabular-nums">
+              · {isOut ? "Out of Stock" : `${effectiveStock - inCartQty} available`}
+            </span>
+          ) : null}
         </span>
       </div>
       <div className="flex gap-3 p-4 bg-[#e8eef5] justify-center">
         {sizes.map((size) => {
           const price = pizza.sizePrices?.[size];
+          const blocked = isOut || isAtMax;
           return (
             <button
               key={size}
               onClick={() => onAdd(pizza.id, size)}
-              className="flex flex-col items-center border-2 border-[#b0c4de] rounded-xl bg-white hover:border-[#1565c0] active:scale-95 transition-all overflow-hidden"
+              aria-disabled={blocked}
+              className={`flex flex-col items-center border-2 rounded-xl bg-white transition-all overflow-hidden ${
+                blocked
+                  ? "border-red-300 opacity-75 cursor-not-allowed"
+                  : "border-[#b0c4de] hover:border-[#1565c0] active:scale-95"
+              }`}
               style={{ width: 110 }}
             >
               <div
@@ -564,8 +807,20 @@ function SizePicker({
                   {pizza.name.replace(/ Pizza$/i, "")} {size}
                 </p>
               </div>
-              <div className="w-full bg-[#2e7d32] text-white text-sm font-bold text-center py-1.5">
-                Rs : {price ?? "—"}
+              <div
+                className={`w-full text-white text-sm font-bold text-center py-1.5 ${
+                  isOut
+                    ? "bg-red-600"
+                    : isAtMax
+                      ? "bg-amber-600"
+                      : "bg-[#2e7d32]"
+                }`}
+              >
+                {isOut
+                  ? "Out of Stock"
+                  : isAtMax
+                    ? "Max Stock"
+                    : `Rs : ${price ?? "—"}`}
               </div>
             </button>
           );
@@ -588,12 +843,16 @@ function SubItemPanel({
     basePrice: number;
     image: string;
     sku?: string;
+    barcode?: string;
+    effectiveStock: number | null;
+    inCartQty: number;
   }[];
-  onAdd: (id: string) => void;
+  onAdd: (id: string) => boolean;
 }) {
   const [added, setAdded] = useState<string | null>(null);
   const handleAdd = (id: string) => {
-    onAdd(id);
+    const ok = onAdd(id);
+    if (!ok) return;
     setAdded(id);
     setTimeout(() => setAdded(null), 800);
   };
@@ -607,12 +866,30 @@ function SubItemPanel({
       <div className="flex flex-wrap gap-3 p-4 bg-[#e8eef5] justify-center">
         {items.map((item) => {
           const isAdded = added === item.id;
+          const isOut = item.effectiveStock === 0;
+          const isAtMax =
+            item.effectiveStock !== null &&
+            item.inCartQty >= item.effectiveStock;
+          const remaining =
+            item.effectiveStock !== null
+              ? Math.max(0, item.effectiveStock - item.inCartQty)
+              : null;
+
           return (
             <button
               key={item.id}
               onClick={() => handleAdd(item.id)}
-              className={`flex flex-col items-center border-2 rounded-xl bg-white active:scale-95 transition-all overflow-hidden ${isAdded ? "border-green-500" : "border-[#b0c4de] hover:border-[#b84c00]"}`}
-              style={{ width: 110 }}
+              aria-disabled={isOut || isAtMax}
+              className={`flex flex-col items-center border-2 rounded-xl bg-white transition-all overflow-hidden ${
+                isOut
+                  ? "border-red-300 opacity-75 cursor-not-allowed"
+                  : isAdded
+                    ? "border-green-500 active:scale-95"
+                    : isAtMax
+                      ? "border-amber-400 opacity-85 cursor-not-allowed"
+                      : "border-[#b0c4de] hover:border-[#b84c00] active:scale-95"
+              }`}
+              style={{ width: 112 }}
             >
               <div
                 className="w-full flex items-center justify-center bg-[#dce8f5]"
@@ -622,7 +899,7 @@ function SubItemPanel({
                   <img
                     src={`/${item.image}`}
                     alt={item.name}
-                    className="object-contain"
+                    className={`object-contain ${isOut ? "grayscale" : ""}`}
                     style={{ width: 60, height: 60 }}
                     onError={(e) => {
                       (e.target as HTMLImageElement).style.display = "none";
@@ -637,15 +914,34 @@ function SubItemPanel({
                   {item.name}
                 </p>
                 {item.sku ? (
-                  <p className="text-[0.58rem] text-gray-500 mt-0.5 truncate w-full">
+                  <p className="text-[0.58rem] text-gray-500 mt-0.5 truncate w-full font-mono">
                     {item.sku}
                   </p>
                 ) : null}
+                {remaining !== null && !isOut && (
+                  <p className="text-[0.6rem] text-gray-500 font-mono tabular-nums mt-0.5">
+                    {remaining} left
+                  </p>
+                )}
               </div>
               <div
-                className={`w-full text-white text-sm font-bold text-center py-1.5 ${isAdded ? "bg-green-600" : "bg-[#2e7d32]"}`}
+                className={`w-full text-white text-xs font-bold text-center py-1.5 ${
+                  isOut
+                    ? "bg-red-600"
+                    : isAdded
+                      ? "bg-green-600"
+                      : isAtMax
+                        ? "bg-amber-600"
+                        : "bg-[#2e7d32]"
+                }`}
               >
-                {isAdded ? "✓ Added" : `Rs : ${item.basePrice}`}
+                {isOut
+                  ? "Out of Stock"
+                  : isAdded
+                    ? "✓ Added"
+                    : isAtMax
+                      ? `Max (${item.effectiveStock})`
+                      : `Rs : ${item.basePrice}`}
               </div>
             </button>
           );

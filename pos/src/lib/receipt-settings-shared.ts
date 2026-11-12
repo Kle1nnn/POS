@@ -8,6 +8,7 @@ export type ReceiptSettings = {
   paymentLine: string;
   receiptPrefix: string;
   receiptNextNumber: number;
+  autoPrintOnCheckout: boolean;
 };
 
 export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
@@ -20,6 +21,7 @@ export const DEFAULT_RECEIPT_SETTINGS: ReceiptSettings = {
   paymentLine: "JazzCash 03213611550 M.Saleh",
   receiptPrefix: "TBT",
   receiptNextNumber: 1,
+  autoPrintOnCheckout: false,
 };
 
 export function normalizeReceiptPrefix(value: string) {

@@ -2,8 +2,26 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  ArrowDownRight,
+  CheckCircle2,
+  Clock,
+  Eye,
+  EyeOff,
+  History,
+  PackageMinus,
+  PackagePlus,
+  PackageX,
+  RefreshCw,
+  ScanBarcode,
+  Search,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import PrintModal from "../components/PrintModal";
 import { CartItem } from "../context/CartContext";
+import { useOrders } from "../context/OrdersContext";
 import {
   clearReceiptSettingsCache,
   printReportHtml,
@@ -16,10 +34,28 @@ import {
   MENU_FONT_OPTIONS,
   type MenuAppearanceSettings,
 } from "../../lib/menu-appearance-shared";
+import {
+  DEFAULT_POS_SETTINGS,
+  POS_SETTINGS_CHANGED_EVENT,
+  type PosSettings,
+} from "../../lib/pos-settings-shared";
+import {
+  DEFAULT_SHORTCUTS,
+  SHORTCUTS_CHANGED_EVENT,
+  formatKeyCombo,
+  getShortcuts,
+  resetShortcuts,
+  saveShortcuts,
+  type ShortcutAction,
+  type ShortcutConfig,
+  type ShortcutsMap,
+} from "../../lib/shortcuts";
 
 type Tab =
   | "contacts"
   | "catalog"
+  | "inventory"
+  | "shortcuts"
   | "reports"
   | "ledger"
   | "receipt"
@@ -60,7 +96,23 @@ type CatalogProduct = {
   hasExtraToppings?: boolean | null;
   hasSauceOptions?: boolean | null;
   sku?: string | null;
+  barcode?: string | null;
   stock?: number | null;
+};
+
+type InventoryLogItem = {
+  id: number;
+  productId: string;
+  productName: string;
+  sku: string;
+  barcode: string;
+  previousStock: number | null;
+  newStock: number | null;
+  quantityChange: number;
+  reason: string;
+  source: string;
+  orderCode: string | null;
+  createdAt: string;
 };
 
 type DailyRow = {
@@ -224,6 +276,43 @@ function formatSizePrices(sizePrices?: Record<string, number> | null) {
   return parts.join(" · ");
 }
 
+function formatInventoryDate(iso: string) {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function inventorySourceLabel(source: string) {
+  switch (source) {
+    case "restock":
+      return { label: "Restock", cls: "bg-emerald-50 text-emerald-800 border-emerald-200" };
+    case "sale":
+      return { label: "Order", cls: "bg-blue-50 text-blue-800 border-blue-200" };
+    case "scan_event":
+      return { label: "Barcode Scan", cls: "bg-indigo-50 text-indigo-800 border-indigo-200" };
+    case "catalog_create":
+      return { label: "New Item", cls: "bg-gray-100 text-gray-700 border-gray-200" };
+    case "catalog_edit":
+      return { label: "Catalog Edit", cls: "bg-amber-50 text-amber-800 border-amber-200" };
+    default:
+      return { label: "Adjustment", cls: "bg-gray-100 text-gray-700 border-gray-200" };
+  }
+}
+
+const INVENTORY_REASON_PRESETS = [
+  "Restock",
+  "Supplier Delivery",
+  "Stock Count Correction",
+  "Damaged / Waste",
+  "Expired",
+];
+
 function reportPrintShell(title: string, subtitle: string, bodyHtml: string) {
   return `<!DOCTYPE html>
 <html>
@@ -271,6 +360,7 @@ function monthLabel(year: number, month: number) {
 
 export default function SettingsPage() {
   const router = useRouter();
+  const { savedOrders } = useOrders();
   const [tab, setTab] = useState<Tab>("contacts");
   const [toast, setToast] = useState<string | null>(null);
 
@@ -289,6 +379,48 @@ export default function SettingsPage() {
   const [isRestoringContacts, setIsRestoringContacts] = useState(false);
   const restoreInputRef = useRef<HTMLInputElement>(null);
   const contactsRestoreInputRef = useRef<HTMLInputElement>(null);
+
+  // Shortcuts
+  const [shortcuts, setShortcuts] = useState<ShortcutsMap>(getShortcuts);
+  const [editingShortcutAction, setEditingShortcutAction] = useState<ShortcutAction | null>(null);
+  const [tempKeyCombo, setTempKeyCombo] = useState<{
+    key: string;
+    altKey: boolean;
+    ctrlKey: boolean;
+  }>({ key: "n", altKey: true, ctrlKey: false });
+
+  // Low stock alert threshold & filter
+  const [lowStockThreshold, setLowStockThreshold] = useState<number>(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("pos_low_stock_threshold");
+      if (saved && !isNaN(Number(saved))) return Math.max(0, Number(saved));
+    }
+    return 5;
+  });
+  const [catalogStockFilter, setCatalogStockFilter] = useState<"all" | "low" | "out" | "in">("all");
+
+  // In-app Restore Confirmation Dialog (replaces window.confirm)
+  const [pendingRestore, setPendingRestore] = useState<{
+    type: "contacts" | "full";
+    file: File;
+    filename: string;
+  } | null>(null);
+
+  // In-app Delete Confirmation Dialog (replaces window.confirm)
+  const [pendingDelete, setPendingDelete] = useState<{
+    type: "product" | "category" | "customer";
+    target: any;
+    title: string;
+    description: string;
+  } | null>(null);
+
+  useEffect(() => {
+    const handler = () => {
+      setShortcuts(getShortcuts());
+    };
+    window.addEventListener(SHORTCUTS_CHANGED_EVENT, handler);
+    return () => window.removeEventListener(SHORTCUTS_CHANGED_EVENT, handler);
+  }, []);
 
   // Auto backup
   const [autoBackup, setAutoBackup] = useState<AutoBackupSettings>({
@@ -336,6 +468,29 @@ export default function SettingsPage() {
   const [catalogProducts, setCatalogProducts] = useState<CatalogProduct[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [itemQuery, setItemQuery] = useState("");
+  const [posSettings, setPosSettings] = useState<PosSettings>(DEFAULT_POS_SETTINGS);
+  const [posSettingsLoading, setPosSettingsLoading] = useState(false);
+  const [isSavingPosSettings, setIsSavingPosSettings] = useState(false);
+  const [inventoryLogs, setInventoryLogs] = useState<InventoryLogItem[]>([]);
+  const [inventoryLogsLoading, setInventoryLogsLoading] = useState(false);
+  const [inventoryQuery, setInventoryQuery] = useState("");
+  const [inventoryFilter, setInventoryFilter] = useState<
+    "" | "in" | "out" | "manual" | "sale" | "scan"
+  >("");
+  const [showInventoryAdjustForm, setShowInventoryAdjustForm] = useState(false);
+  const [adjustProductId, setAdjustProductId] = useState("");
+  const [adjustMode, setAdjustMode] = useState<"add" | "subtract" | "set">("add");
+  const [adjustQuantity, setAdjustQuantity] = useState("");
+  const [adjustReason, setAdjustReason] = useState("");
+  const [isAdjustingStock, setIsAdjustingStock] = useState(false);
+  const [quickAdjustProduct, setQuickAdjustProduct] =
+    useState<CatalogProduct | null>(null);
+  const [quickAdjustMode, setQuickAdjustMode] = useState<
+    "add" | "subtract" | "set"
+  >("add");
+  const [quickAdjustQty, setQuickAdjustQty] = useState("");
+  const [quickAdjustReason, setQuickAdjustReason] = useState("");
+  const [isSavingQuickAdjust, setIsSavingQuickAdjust] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [newCategoryEmoji, setNewCategoryEmoji] = useState("📦");
   const [newCategoryImage, setNewCategoryImage] = useState(DEFAULT_IMAGE);
@@ -361,7 +516,9 @@ export default function SettingsPage() {
     description: "",
     image: DEFAULT_IMAGE,
     sku: "",
+    barcode: "",
     stock: "",
+    stockReason: "",
     priceS: "",
     priceM: "",
     priceL: "",
@@ -373,6 +530,7 @@ export default function SettingsPage() {
   const [isUploadingImage, setIsUploadingImage] = useState(false);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const itemImageInputRef = useRef<HTMLInputElement>(null);
+  const catalogItemsRef = useRef<HTMLDivElement>(null);
 
   // Reports
   const now = useMemo(() => new Date(), []);
@@ -482,6 +640,123 @@ export default function SettingsPage() {
       setCatalogLoading(false);
     }
   }, []);
+
+  const loadPosSettings = useCallback(async () => {
+    setPosSettingsLoading(true);
+    try {
+      const res = await fetch("/api/pos-settings");
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.settings) {
+        setPosSettings({
+          barcodeSearchEnabled:
+            typeof data.settings.barcodeSearchEnabled === "boolean"
+              ? data.settings.barcodeSearchEnabled
+              : DEFAULT_POS_SETTINGS.barcodeSearchEnabled,
+          digitalClockEnabled:
+            typeof data.settings.digitalClockEnabled === "boolean"
+              ? data.settings.digitalClockEnabled
+              : DEFAULT_POS_SETTINGS.digitalClockEnabled,
+        });
+      }
+    } catch (error) {
+      console.error("Failed to load POS settings", error);
+    } finally {
+      setPosSettingsLoading(false);
+    }
+  }, []);
+
+  const toggleBarcodeSearch = async (nextEnabled: boolean) => {
+    setIsSavingPosSettings(true);
+    try {
+      const res = await fetch("/api/pos-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ barcodeSearchEnabled: nextEnabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to update barcode search setting");
+      }
+      const updated: PosSettings = data.settings ?? {
+        ...posSettings,
+        barcodeSearchEnabled: nextEnabled,
+      };
+      setPosSettings(updated);
+      window.dispatchEvent(
+        new CustomEvent(POS_SETTINGS_CHANGED_EVENT, { detail: updated }),
+      );
+      showToast(
+        updated.barcodeSearchEnabled
+          ? "Barcode search enabled in billing"
+          : "Barcode search disabled in billing",
+      );
+    } catch (error) {
+      console.error("Failed to save POS settings", error);
+      showToast(
+        error instanceof Error ? error.message : "Failed to save barcode setting",
+      );
+    } finally {
+      setIsSavingPosSettings(false);
+    }
+  };
+
+  const setDigitalClockVisibility = async (nextVisible: boolean) => {
+    setIsSavingPosSettings(true);
+    try {
+      const res = await fetch("/api/pos-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ digitalClockEnabled: nextVisible }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to update digital clock setting");
+      }
+      const updated: PosSettings = data.settings ?? {
+        ...posSettings,
+        digitalClockEnabled: nextVisible,
+      };
+      setPosSettings(updated);
+      window.dispatchEvent(
+        new CustomEvent(POS_SETTINGS_CHANGED_EVENT, { detail: updated }),
+      );
+      showToast(
+        updated.digitalClockEnabled
+          ? "Digital clock shown above navigation buttons"
+          : "Digital clock hidden above navigation buttons",
+      );
+    } catch (error) {
+      console.error("Failed to save digital clock setting", error);
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to save digital clock setting",
+      );
+    } finally {
+      setIsSavingPosSettings(false);
+    }
+  };
+
+  const loadInventoryLogs = useCallback(async () => {
+    setInventoryLogsLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (inventoryQuery.trim()) params.set("q", inventoryQuery.trim());
+      if (inventoryFilter) params.set("filter", inventoryFilter);
+      params.set("limit", "250");
+      const res = await fetch(`/api/catalog/inventory?${params.toString()}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to load inventory log");
+      }
+      setInventoryLogs(data.logs ?? []);
+    } catch (error) {
+      console.error("Failed to load inventory log", error);
+      showToast("Failed to load inventory log");
+    } finally {
+      setInventoryLogsLoading(false);
+    }
+  }, [inventoryQuery, inventoryFilter]);
 
   const loadReports = useCallback(async () => {
     setReportsLoading(true);
@@ -600,11 +875,27 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadCustomers();
-  }, []);
+    void loadPosSettings();
+  }, [loadPosSettings]);
 
   useEffect(() => {
-    if (tab === "catalog" || tab === "reports") void loadCatalog();
-  }, [tab, loadCatalog]);
+    if (tab === "catalog") {
+      void loadCatalog();
+      void loadPosSettings();
+    } else if (tab === "menu") {
+      void loadPosSettings();
+    } else if (tab === "reports" || tab === "inventory") {
+      void loadCatalog();
+    }
+  }, [tab, loadCatalog, loadPosSettings]);
+
+  useEffect(() => {
+    if (tab !== "inventory") return;
+    const t = window.setTimeout(() => {
+      void loadInventoryLogs();
+    }, 150);
+    return () => window.clearTimeout(t);
+  }, [tab, loadInventoryLogs]);
 
   useEffect(() => {
     if (tab === "reports") void loadReports();
@@ -797,20 +1088,6 @@ export default function SettingsPage() {
       showToast("Enter confirmation code to wipe data");
       return;
     }
-    if (
-      !confirm(
-        "This will permanently delete ALL contacts, saved orders, history, balances, and reset receipt numbers. Catalog and receipt branding are kept. Continue?",
-      )
-    ) {
-      return;
-    }
-    if (
-      !confirm(
-        "Final confirmation: wipe all transactional data? This cannot be undone.",
-      )
-    ) {
-      return;
-    }
 
     setIsWipingData(true);
     try {
@@ -874,6 +1151,10 @@ export default function SettingsPage() {
       quantity: item.quantity ?? 1,
       price: Number(item.price ?? 0),
     }));
+    const placedAt =
+      ("createdAt" in order ? order.createdAt : null) ||
+      order.soldAt ||
+      null;
     setPrintOrder({
       id: order.orderCode,
       items,
@@ -886,10 +1167,7 @@ export default function SettingsPage() {
       },
       orderType: order.orderType,
       tableNumber: order.tableNumber,
-      placedAt:
-        ("createdAt" in order ? order.createdAt : null) ||
-        order.soldAt ||
-        null,
+      placedAt,
     });
     setPrintModalOpen(true);
   };
@@ -911,17 +1189,79 @@ export default function SettingsPage() {
     ).sort((a, b) => a.localeCompare(b));
   }, [categories, catalogProducts]);
 
-  const filteredCatalogProducts = useMemo(() => {
-    const q = itemQuery.trim().toLowerCase();
-    if (!q) return catalogProducts;
+  const lowStockCount = useMemo(() => {
     return catalogProducts.filter(
+      (p) => p.stock != null && p.stock <= lowStockThreshold && p.stock > 0,
+    ).length;
+  }, [catalogProducts, lowStockThreshold]);
+
+  const outOfStockCount = useMemo(() => {
+    return catalogProducts.filter((p) => p.stock === 0).length;
+  }, [catalogProducts]);
+
+  const inStockCount = useMemo(() => {
+    return catalogProducts.filter((p) => p.stock != null && p.stock > lowStockThreshold).length;
+  }, [catalogProducts, lowStockThreshold]);
+
+  const unlimitedStockCount = useMemo(() => {
+    return catalogProducts.filter((p) => p.stock == null).length;
+  }, [catalogProducts]);
+
+  const jumpToFilteredCatalog = useCallback(
+    (filter: "all" | "low" | "out" | "in") => {
+      setCatalogStockFilter(filter);
+      setItemQuery("");
+      window.requestAnimationFrame(() => {
+        catalogItemsRef.current?.scrollIntoView({
+          behavior: "smooth",
+          block: "start",
+        });
+      });
+    },
+    [],
+  );
+
+  const filteredCatalogProducts = useMemo(() => {
+    let list = catalogProducts;
+    if (catalogStockFilter === "low") {
+      list = list.filter(
+        (p) => p.stock != null && p.stock <= lowStockThreshold && p.stock > 0,
+      );
+    } else if (catalogStockFilter === "out") {
+      list = list.filter((p) => p.stock === 0);
+    } else if (catalogStockFilter === "in") {
+      list = list.filter((p) => p.stock != null && p.stock > lowStockThreshold);
+    }
+
+    const q = itemQuery.trim().toLowerCase();
+    if (!q) return list;
+    return list.filter(
       (p) =>
         p.name.toLowerCase().includes(q) ||
         p.category.toLowerCase().includes(q) ||
         (p.description || "").toLowerCase().includes(q) ||
-        (p.sku || "").toLowerCase().includes(q),
+        (p.sku || "").toLowerCase().includes(q) ||
+        (p.barcode || "").toLowerCase().includes(q),
     );
-  }, [catalogProducts, itemQuery]);
+  }, [catalogProducts, itemQuery, catalogStockFilter, lowStockThreshold]);
+
+  const sortedCatalogProductsForSelect = useMemo(() => {
+    return [...catalogProducts].sort((a, b) => a.name.localeCompare(b.name));
+  }, [catalogProducts]);
+
+  const inventorySummary = useMemo(() => {
+    let totalAdded = 0;
+    let totalDeducted = 0;
+    for (const entry of inventoryLogs) {
+      if (entry.quantityChange > 0) totalAdded += entry.quantityChange;
+      else if (entry.quantityChange < 0) totalDeducted += Math.abs(entry.quantityChange);
+    }
+    return {
+      count: inventoryLogs.length,
+      totalAdded,
+      totalDeducted,
+    };
+  }, [inventoryLogs]);
 
   const reportCustomerOptions = useMemo(() => {
     const map = new Map<string, DayCustomerOption>();
@@ -1296,15 +1636,7 @@ export default function SettingsPage() {
     }
   };
 
-  const deleteCustomer = async (customer: Customer) => {
-    if (
-      !confirm(
-        `Delete contact "${customer.name}"${customer.phone ? ` (${customer.phone})` : ""}?`,
-      )
-    ) {
-      return;
-    }
-
+  const executeDeleteCustomer = async (customer: Customer) => {
     setDeletingId(customer.id);
     try {
       const res = await fetch(`/api/customers?id=${customer.id}`, {
@@ -1330,7 +1662,17 @@ export default function SettingsPage() {
       showToast("Delete failed");
     } finally {
       setDeletingId(null);
+      setPendingDelete(null);
     }
+  };
+
+  const deleteCustomer = (customer: Customer) => {
+    setPendingDelete({
+      type: "customer",
+      target: customer,
+      title: "Delete Contact",
+      description: `Delete contact "${customer.name}"${customer.phone ? ` (${customer.phone})` : ""}?`,
+    });
   };
 
   const backupAllData = async () => {
@@ -1379,15 +1721,7 @@ export default function SettingsPage() {
     }
   };
 
-  const restoreContactsFromBackup = async (file: File) => {
-    if (
-      !confirm(
-        "Restore will replace ALL saved contacts with the backup file. Orders and sales data will not be changed. Continue?",
-      )
-    ) {
-      return;
-    }
-
+  const executeRestoreContacts = async (file: File) => {
     setIsRestoringContacts(true);
     try {
       const text = await file.text();
@@ -1403,22 +1737,15 @@ export default function SettingsPage() {
       showToast("Contacts restored successfully");
     } catch (error) {
       console.error("Failed to restore contacts backup", error);
-      showToast("Contacts restore failed");
+      showToast(error instanceof Error ? error.message : "Contacts restore failed");
     } finally {
       setIsRestoringContacts(false);
+      setPendingRestore(null);
       if (contactsRestoreInputRef.current) contactsRestoreInputRef.current.value = "";
     }
   };
 
-  const restoreFromBackup = async (file: File) => {
-    if (
-      !confirm(
-        "Restore will replace ALL orders, contacts, and sales data with the backup file. Continue?",
-      )
-    ) {
-      return;
-    }
-
+  const executeRestoreFull = async (file: File) => {
     setIsRestoring(true);
     try {
       const text = await file.text();
@@ -1431,14 +1758,75 @@ export default function SettingsPage() {
       const data = (await res.json().catch(() => ({}))) as { error?: string };
       if (!res.ok) throw new Error(data.error ?? "Restore failed");
       await loadCustomers();
+      await loadCatalog();
       showToast("Data restored successfully");
     } catch (error) {
       console.error("Failed to restore backup", error);
-      showToast("Restore failed");
+      showToast(error instanceof Error ? error.message : "Restore failed");
     } finally {
       setIsRestoring(false);
+      setPendingRestore(null);
       if (restoreInputRef.current) restoreInputRef.current.value = "";
     }
+  };
+
+  const restoreContactsFromBackup = (file: File) => {
+    setPendingRestore({
+      type: "contacts",
+      file,
+      filename: file.name,
+    });
+  };
+
+  const restoreFromBackup = (file: File) => {
+    setPendingRestore({
+      type: "full",
+      file,
+      filename: file.name,
+    });
+  };
+
+  const startEditShortcut = (action: ShortcutAction) => {
+    const config = shortcuts[action] || DEFAULT_SHORTCUTS[action];
+    setTempKeyCombo({
+      key: config.key,
+      altKey: config.altKey,
+      ctrlKey: config.ctrlKey,
+    });
+    setEditingShortcutAction(action);
+  };
+
+  const saveCurrentShortcut = () => {
+    if (!editingShortcutAction) return;
+    const current =
+      shortcuts[editingShortcutAction] || DEFAULT_SHORTCUTS[editingShortcutAction];
+    const key = tempKeyCombo.key.trim().toLowerCase();
+    if (!key) {
+      showToast("Key cannot be empty");
+      return;
+    }
+    const label = formatKeyCombo(key, tempKeyCombo.altKey, tempKeyCombo.ctrlKey);
+    const updated: ShortcutsMap = {
+      ...shortcuts,
+      [editingShortcutAction]: {
+        ...current,
+        key,
+        altKey: tempKeyCombo.altKey,
+        ctrlKey: tempKeyCombo.ctrlKey,
+        label,
+      },
+    };
+    saveShortcuts(updated);
+    setShortcuts(updated);
+    setEditingShortcutAction(null);
+    showToast(`Shortcut updated: ${label}`);
+  };
+
+  const handleResetShortcuts = () => {
+    const def = resetShortcuts();
+    setShortcuts(def);
+    setEditingShortcutAction(null);
+    showToast("Keyboard shortcuts reset to defaults");
   };
 
   const addCustomer = async () => {
@@ -1714,8 +2102,7 @@ export default function SettingsPage() {
     }
   };
 
-  const deleteCategory = async (category: CustomCategory) => {
-    if (!confirm(`Delete category "${category.name}"?`)) return;
+  const executeDeleteCategory = async (category: CustomCategory) => {
     setDeletingCategoryId(category.id);
     try {
       const res = await fetch(`/api/catalog/categories?id=${category.id}`, {
@@ -1734,7 +2121,17 @@ export default function SettingsPage() {
       showToast("Delete category failed");
     } finally {
       setDeletingCategoryId(null);
+      setPendingDelete(null);
     }
+  };
+
+  const deleteCategory = (category: CustomCategory) => {
+    setPendingDelete({
+      type: "category",
+      target: category,
+      title: "Delete Category",
+      description: `Delete category "${category.name}"? Products in this category will keep their items.`,
+    });
   };
 
   const saveReceiptSettings = async () => {
@@ -1905,10 +2302,12 @@ export default function SettingsPage() {
       description: product.description || "",
       image: product.image || DEFAULT_IMAGE,
       sku: product.sku || "",
+      barcode: product.barcode || "",
       stock:
         product.stock != null && Number.isFinite(Number(product.stock))
           ? String(product.stock)
           : "",
+      stockReason: "",
       priceS: sizes.S != null ? String(sizes.S) : "",
       priceM: sizes.M != null ? String(sizes.M) : "",
       priceL: sizes.L != null ? String(sizes.L) : "",
@@ -1978,7 +2377,9 @@ export default function SettingsPage() {
         description: newItem.description.trim() || newItem.name.trim(),
         image: newItem.image.trim() || DEFAULT_IMAGE,
         sku: newItem.sku.trim(),
+        barcode: newItem.barcode.trim(),
         stock,
+        stockReason: newItem.stockReason.trim(),
         sizePrices: isPizza ? sizePrices : (existing?.sizePrices ?? null),
         sizes: isPizza ? sizes : (existing?.sizes ?? null),
         hasExtraToppings: isPizza
@@ -2022,6 +2423,7 @@ export default function SettingsPage() {
         ]);
         showToast("Item added");
       }
+      window.dispatchEvent(new Event("catalog-updated"));
       resetItemForm();
     } catch (error) {
       console.error("Failed to save item", error);
@@ -2031,12 +2433,7 @@ export default function SettingsPage() {
     }
   };
 
-  const deleteProduct = async (product: CatalogProduct) => {
-    const label =
-      product.source === "builtin"
-        ? `Remove "${product.name}" from the menu?`
-        : `Delete item "${product.name}"?`;
-    if (!confirm(label)) return;
+  const executeDeleteProduct = async (product: CatalogProduct) => {
     setDeletingProductId(product.id);
     try {
       const res = await fetch(
@@ -2054,13 +2451,151 @@ export default function SettingsPage() {
         await deleteUploadedImage(data.image || product.image);
       }
       if (editingProductId === product.id) resetItemForm();
+      window.dispatchEvent(new Event("catalog-updated"));
       showToast(product.source === "builtin" ? "Item removed from menu" : "Item deleted");
     } catch (error) {
       console.error("Failed to delete item", error);
       showToast("Delete item failed");
     } finally {
       setDeletingProductId(null);
+      setPendingDelete(null);
     }
+  };
+
+  const submitInventoryAdjustment = async () => {
+    if (!adjustProductId) {
+      showToast("Select a product first");
+      return;
+    }
+    let parsedQty: number | null = null;
+    if (adjustMode === "set" && adjustQuantity.trim() === "") {
+      parsedQty = null;
+    } else {
+      const n = Number(adjustQuantity);
+      if (!Number.isFinite(n) || n < 0 || (adjustMode !== "set" && n <= 0)) {
+        showToast(
+          adjustMode === "set"
+            ? "Enter 0 or higher (or leave blank for unlimited)"
+            : "Enter a quantity greater than 0",
+        );
+        return;
+      }
+      parsedQty = Math.floor(n);
+    }
+
+    setIsAdjustingStock(true);
+    try {
+      const res = await fetch("/api/catalog/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: adjustProductId,
+          mode: adjustMode,
+          quantity: parsedQty,
+          reason: adjustReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to adjust stock");
+
+      const newStock = data.adjustment?.newStock ?? null;
+      const productName = data.adjustment?.productName ?? "Item";
+      setCatalogProducts((prev) =>
+        prev.map((p) => (p.id === adjustProductId ? { ...p, stock: newStock } : p)),
+      );
+      window.dispatchEvent(new Event("catalog-updated"));
+      setAdjustQuantity("");
+      setAdjustReason("");
+      showToast(
+        `${productName}: stock set to ${newStock == null ? "Unlimited" : newStock}`,
+      );
+      await loadInventoryLogs();
+    } catch (error) {
+      console.error("Failed to adjust inventory", error);
+      showToast(
+        error instanceof Error ? error.message : "Failed to adjust stock",
+      );
+    } finally {
+      setIsAdjustingStock(false);
+    }
+  };
+
+  const openQuickAdjust = (product: CatalogProduct) => {
+    setQuickAdjustProduct(product);
+    setQuickAdjustMode("add");
+    setQuickAdjustQty("");
+    setQuickAdjustReason("Restock");
+  };
+
+  const submitQuickAdjust = async () => {
+    if (!quickAdjustProduct) return;
+    let parsedQty: number | null = null;
+    if (quickAdjustMode === "set" && quickAdjustQty.trim() === "") {
+      parsedQty = null;
+    } else {
+      const n = Number(quickAdjustQty);
+      if (
+        !Number.isFinite(n) ||
+        n < 0 ||
+        (quickAdjustMode !== "set" && n <= 0)
+      ) {
+        showToast(
+          quickAdjustMode === "set"
+            ? "Enter 0 or higher (or leave blank for unlimited)"
+            : "Enter a quantity greater than 0",
+        );
+        return;
+      }
+      parsedQty = Math.floor(n);
+    }
+
+    setIsSavingQuickAdjust(true);
+    try {
+      const res = await fetch("/api/catalog/inventory", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: quickAdjustProduct.id,
+          mode: quickAdjustMode,
+          quantity: parsedQty,
+          reason: quickAdjustReason.trim(),
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Failed to update stock");
+
+      const newStock = data.adjustment?.newStock ?? null;
+      setCatalogProducts((prev) =>
+        prev.map((p) =>
+          p.id === quickAdjustProduct.id ? { ...p, stock: newStock } : p,
+        ),
+      );
+      window.dispatchEvent(new Event("catalog-updated"));
+      showToast(
+        `${quickAdjustProduct.name}: stock updated to ${newStock == null ? "Unlimited" : newStock}`,
+      );
+      setQuickAdjustProduct(null);
+    } catch (error) {
+      console.error("Failed to quick adjust stock", error);
+      showToast(
+        error instanceof Error ? error.message : "Failed to update stock",
+      );
+    } finally {
+      setIsSavingQuickAdjust(false);
+    }
+  };
+
+  const deleteProduct = (product: CatalogProduct) => {
+    const label =
+      product.source === "builtin"
+        ? `Remove "${product.name}" from the menu?`
+        : `Delete item "${product.name}"?`;
+    setPendingDelete({
+      type: "product",
+      target: product,
+      title: product.source === "builtin" ? "Remove Menu Item" : "Delete Item",
+      description: label,
+    });
   };
 
   const yearOptions = useMemo(() => {
@@ -2096,6 +2631,309 @@ export default function SettingsPage() {
         />
       )}
 
+
+
+      {pendingRestore && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-amber-50/70">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">⚠️</span>
+                <h3 className="text-base font-bold text-amber-950">
+                  {pendingRestore.type === "contacts"
+                    ? "Restore Contacts"
+                    : "Restore Full Database"}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingRestore(null);
+                  if (restoreInputRef.current) restoreInputRef.current.value = "";
+                  if (contactsRestoreInputRef.current)
+                    contactsRestoreInputRef.current.value = "";
+                }}
+                disabled={isRestoring || isRestoringContacts}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              <div className="bg-gray-50 rounded-xl p-3 border border-gray-200">
+                <p className="text-xs text-gray-500 uppercase font-semibold mb-1">Selected File</p>
+                <p className="text-sm font-mono font-bold text-gray-900 break-all">
+                  {pendingRestore.filename}
+                </p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Size: {(pendingRestore.file.size / 1024).toFixed(1)} KB
+                </p>
+              </div>
+
+              <div
+                className={`p-3.5 rounded-xl text-xs leading-relaxed border ${
+                  pendingRestore.type === "full"
+                    ? "bg-red-50 border-red-200 text-red-900 font-medium"
+                    : "bg-amber-50 border-amber-200 text-amber-900"
+                }`}
+              >
+                {pendingRestore.type === "contacts" ? (
+                  <p>
+                    <strong>Warning:</strong> Restoring contacts will replace ALL saved customer contacts with the records in this backup file. Orders and sales data will remain unchanged.
+                  </p>
+                ) : (
+                  <p>
+                    <strong>CRITICAL WARNING:</strong> Restoring will replace ALL current orders, customer contacts, and sales data with the records from this backup file.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingRestore(null);
+                  if (restoreInputRef.current) restoreInputRef.current.value = "";
+                  if (contactsRestoreInputRef.current)
+                    contactsRestoreInputRef.current.value = "";
+                }}
+                disabled={isRestoring || isRestoringContacts}
+                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (pendingRestore.type === "contacts") {
+                    void executeRestoreContacts(pendingRestore.file);
+                  } else {
+                    void executeRestoreFull(pendingRestore.file);
+                  }
+                }}
+                disabled={isRestoring || isRestoringContacts}
+                className={`px-4 py-2 rounded-xl text-white text-sm font-bold shadow-sm transition-colors disabled:opacity-50 ${
+                  pendingRestore.type === "full"
+                    ? "bg-red-700 hover:bg-red-800"
+                    : "bg-green-700 hover:bg-green-800"
+                }`}
+              >
+                {isRestoring || isRestoringContacts
+                  ? "Restoring..."
+                  : "Confirm & Restore"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200 animate-in fade-in zoom-in-95">
+            <div className="p-5 border-b border-gray-100 flex items-center justify-between bg-red-50/70">
+              <div className="flex items-center gap-2.5">
+                <span className="text-2xl">🗑️</span>
+                <h3 className="text-base font-bold text-red-950">
+                  {pendingDelete.title}
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="text-gray-400 hover:text-gray-600 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="p-5">
+              <p className="text-sm text-gray-700 leading-relaxed">
+                {pendingDelete.description}
+              </p>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setPendingDelete(null)}
+                className="px-4 py-2 rounded-xl border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-100"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (pendingDelete.type === "customer") {
+                    void executeDeleteCustomer(pendingDelete.target);
+                  } else if (pendingDelete.type === "category") {
+                    void executeDeleteCategory(pendingDelete.target);
+                  } else if (pendingDelete.type === "product") {
+                    void executeDeleteProduct(pendingDelete.target);
+                  }
+                }}
+                disabled={
+                  deletingId != null ||
+                  deletingCategoryId != null ||
+                  deletingProductId != null
+                }
+                className="px-4 py-2 rounded-xl bg-red-700 hover:bg-red-800 text-white text-sm font-bold shadow-sm transition-colors disabled:opacity-50"
+              >
+                {deletingId != null ||
+                deletingCategoryId != null ||
+                deletingProductId != null
+                  ? "Deleting..."
+                  : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {quickAdjustProduct && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-xs p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-gray-200">
+            <div className="p-4 border-b border-gray-100 flex items-center justify-between bg-gray-50">
+              <div className="flex items-center gap-2.5 min-w-0">
+                <SlidersHorizontal className="w-4 h-4 text-gray-700 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="text-sm font-bold text-gray-900 truncate">
+                    Adjust Stock: {quickAdjustProduct.name}
+                  </h3>
+                  <p className="text-xs text-gray-500 font-mono">
+                    Current:{" "}
+                    {quickAdjustProduct.stock == null
+                      ? "Unlimited"
+                      : `${quickAdjustProduct.stock} units`}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setQuickAdjustProduct(null)}
+                disabled={isSavingQuickAdjust}
+                aria-label="Close stock adjustment"
+                className="text-gray-400 hover:text-gray-600 p-1"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            <div className="p-4 space-y-3">
+              <div className="grid grid-cols-3 gap-2">
+                {(
+                  [
+                    { id: "add", label: "Add (+)" },
+                    { id: "subtract", label: "Deduct (-)" },
+                    { id: "set", label: "Set Exact" },
+                  ] as const
+                ).map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      setQuickAdjustMode(m.id);
+                      if (
+                        m.id === "add" &&
+                        (!quickAdjustReason || quickAdjustReason === "Stock deduction")
+                      ) {
+                        setQuickAdjustReason("Restock");
+                      } else if (
+                        m.id === "subtract" &&
+                        (!quickAdjustReason || quickAdjustReason === "Restock")
+                      ) {
+                        setQuickAdjustReason("Stock deduction");
+                      } else if (m.id === "set" && quickAdjustReason === "Restock") {
+                        setQuickAdjustReason("Stock count correction");
+                      }
+                    }}
+                    className={`py-2 px-2 rounded-lg text-xs font-semibold border transition-colors ${
+                      quickAdjustMode === m.id
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  {quickAdjustMode === "set"
+                    ? "Exact Stock Quantity (leave blank for Unlimited)"
+                    : quickAdjustMode === "add"
+                      ? "Quantity to Add"
+                      : "Quantity to Deduct"}
+                </label>
+                <input
+                  type="number"
+                  min={quickAdjustMode === "set" ? "0" : "1"}
+                  step="1"
+                  value={quickAdjustQty}
+                  onChange={(e) => setQuickAdjustQty(e.target.value)}
+                  placeholder={
+                    quickAdjustMode === "set"
+                      ? "Blank = Unlimited stock"
+                      : "Enter quantity"
+                  }
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">
+                  Reason
+                </label>
+                <input
+                  type="text"
+                  value={quickAdjustReason}
+                  onChange={(e) => setQuickAdjustReason(e.target.value)}
+                  placeholder="e.g. Restock, Supplier delivery, Damaged"
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {INVENTORY_REASON_PRESETS.map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      onClick={() => setQuickAdjustReason(preset)}
+                      className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                        quickAdjustReason === preset
+                          ? "bg-blue-50 border-blue-300 text-blue-800"
+                          : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="p-4 bg-gray-50 border-t border-gray-100 flex items-center justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setQuickAdjustProduct(null)}
+                disabled={isSavingQuickAdjust}
+                className="px-3.5 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-semibold hover:bg-gray-100 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void submitQuickAdjust()}
+                disabled={isSavingQuickAdjust}
+                className="px-4 py-2 rounded-lg bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 disabled:opacity-50"
+              >
+                {isSavingQuickAdjust ? "Saving..." : "Apply Stock Change"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="sticky top-0 z-30 bg-[#f0f2f5]">
       <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
         <h1 className="text-lg font-bold text-gray-900">⚙️ Settings</h1>
@@ -2108,9 +2946,17 @@ export default function SettingsPage() {
           </button>
           <button
             onClick={() => router.push("/Orders")}
-            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors"
+            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center gap-2"
           >
-            Orders
+            <span>Orders</span>
+            {savedOrders.length > 0 && (
+              <span
+                aria-label={`${savedOrders.length} saved orders`}
+                className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-amber-500 text-gray-950 font-mono text-xs font-bold leading-none tabular-nums"
+              >
+                {savedOrders.length}
+              </span>
+            )}
           </button>
           <button
             onClick={() => router.push("/History")}
@@ -2126,7 +2972,9 @@ export default function SettingsPage() {
           {(
             [
               { id: "contacts", label: "Contacts" },
-              { id: "catalog", label: "Add Item / Category" },
+              { id: "catalog", label: "Catalog" },
+              { id: "inventory", label: "Inventory Log" },
+              { id: "shortcuts", label: "⌨️ Shortcuts" },
               { id: "menu", label: "Menu Style" },
               { id: "reports", label: "Reports" },
               { id: "ledger", label: "Customer Ledger" },
@@ -2156,7 +3004,11 @@ export default function SettingsPage() {
       </div>
       </div>
 
-      <div className="p-6 pt-4 max-w-4xl">
+      <div
+        className={`p-6 pt-4 ${
+          tab === "catalog" || tab === "inventory" ? "max-w-5xl" : "max-w-4xl"
+        }`}
+      >
         {tab === "contacts" && (
           <>
             <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4">
@@ -2439,6 +3291,284 @@ export default function SettingsPage() {
 
         {tab === "catalog" && (
           <>
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden mb-4">
+              <div className="px-5 py-3.5 border-b border-gray-200 flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-500">
+                    Inventory Health Summary
+                  </p>
+                  <p className="text-xs text-gray-500 mt-0.5 tabular-nums">
+                    {catalogLoading
+                      ? "Loading menu stock levels..."
+                      : `${catalogProducts.length} menu items · Low stock threshold ≤ ${lowStockThreshold} units`}
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  {catalogStockFilter !== "all" && (
+                    <button
+                      type="button"
+                      onClick={() => jumpToFilteredCatalog("all")}
+                      className="text-xs font-semibold text-gray-700 hover:text-gray-900 underline underline-offset-2"
+                    >
+                      Reset filter
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => jumpToFilteredCatalog("all")}
+                    className="px-3 py-1.5 rounded-lg border border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700 hover:bg-gray-100 transition-colors tabular-nums"
+                  >
+                    View All ({catalogLoading ? "--" : catalogProducts.length})
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 divide-y md:divide-y-0 md:divide-x divide-gray-200">
+                <button
+                  type="button"
+                  onClick={() => jumpToFilteredCatalog("low")}
+                  aria-pressed={catalogStockFilter === "low"}
+                  className={`group text-left px-5 py-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-amber-500 ${
+                    catalogStockFilter === "low"
+                      ? "bg-amber-50/80"
+                      : "hover:bg-amber-50/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 ${
+                          lowStockCount > 0
+                            ? "bg-amber-50 border-amber-200 text-amber-700"
+                            : "bg-gray-50 border-gray-200 text-gray-500"
+                        }`}
+                      >
+                        <AlertTriangle className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                        Low Stock Items
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-amber-800 group-hover:translate-x-0.5 transition-transform">
+                      <span>
+                        {catalogStockFilter === "low"
+                          ? "Filtered below"
+                          : "View filtered"}
+                      </span>
+                      <ArrowDownRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-baseline justify-between gap-3">
+                    <span
+                      className={`text-3xl font-bold tracking-tight tabular-nums ${
+                        lowStockCount > 0 ? "text-amber-700" : "text-gray-900"
+                      }`}
+                    >
+                      {catalogLoading ? "--" : lowStockCount}
+                    </span>
+                    <span className="text-xs text-gray-500 tabular-nums">
+                      {lowStockThreshold > 0
+                        ? `1–${lowStockThreshold} units left`
+                        : "0 threshold"}
+                    </span>
+                  </div>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => jumpToFilteredCatalog("out")}
+                  aria-pressed={catalogStockFilter === "out"}
+                  className={`group text-left px-5 py-4 transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-red-600 ${
+                    catalogStockFilter === "out"
+                      ? "bg-red-50/80"
+                      : "hover:bg-red-50/40"
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2.5">
+                      <div
+                        className={`w-9 h-9 rounded-lg border flex items-center justify-center shrink-0 ${
+                          outOfStockCount > 0
+                            ? "bg-red-50 border-red-200 text-red-700"
+                            : "bg-gray-50 border-gray-200 text-gray-500"
+                        }`}
+                      >
+                        <PackageX className="w-4 h-4" />
+                      </div>
+                      <span className="text-xs font-semibold uppercase tracking-wide text-gray-700">
+                        Out of Stock Items
+                      </span>
+                    </div>
+                    <span className="inline-flex items-center gap-1 text-xs font-semibold text-red-700 group-hover:translate-x-0.5 transition-transform">
+                      <span>
+                        {catalogStockFilter === "out"
+                          ? "Filtered below"
+                          : "View filtered"}
+                      </span>
+                      <ArrowDownRight className="w-3.5 h-3.5" />
+                    </span>
+                  </div>
+                  <div className="mt-3 flex items-baseline justify-between gap-3">
+                    <span
+                      className={`text-3xl font-bold tracking-tight tabular-nums ${
+                        outOfStockCount > 0 ? "text-red-700" : "text-gray-900"
+                      }`}
+                    >
+                      {catalogLoading ? "--" : outOfStockCount}
+                    </span>
+                    <span className="text-xs text-gray-500">
+                      0 units · Blocked in billing
+                    </span>
+                  </div>
+                </button>
+              </div>
+
+              <div className="px-5 py-3 bg-gray-50/70 border-t border-gray-200 space-y-2">
+                <div
+                  className="h-2 w-full rounded bg-gray-200 overflow-hidden flex"
+                  aria-label="Catalog stock breakdown bar"
+                >
+                  {!catalogLoading && catalogProducts.length > 0 && (
+                    <>
+                      {outOfStockCount > 0 && (
+                        <div
+                          style={{
+                            width: `${(outOfStockCount / catalogProducts.length) * 100}%`,
+                          }}
+                          className="bg-red-600 h-full transition-all"
+                          title={`Out of Stock: ${outOfStockCount}`}
+                        />
+                      )}
+                      {lowStockCount > 0 && (
+                        <div
+                          style={{
+                            width: `${(lowStockCount / catalogProducts.length) * 100}%`,
+                          }}
+                          className="bg-amber-500 h-full transition-all"
+                          title={`Low Stock: ${lowStockCount}`}
+                        />
+                      )}
+                      {inStockCount > 0 && (
+                        <div
+                          style={{
+                            width: `${(inStockCount / catalogProducts.length) * 100}%`,
+                          }}
+                          className="bg-emerald-600 h-full transition-all"
+                          title={`In Stock: ${inStockCount}`}
+                        />
+                      )}
+                      {unlimitedStockCount > 0 && (
+                        <div
+                          style={{
+                            width: `${(unlimitedStockCount / catalogProducts.length) * 100}%`,
+                          }}
+                          className="bg-gray-300 h-full transition-all"
+                          title={`Unlimited Stock: ${unlimitedStockCount}`}
+                        />
+                      )}
+                    </>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 text-xs text-gray-600 tabular-nums">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                    <button
+                      type="button"
+                      onClick={() => jumpToFilteredCatalog("out")}
+                      className="inline-flex items-center gap-1.5 hover:text-gray-900"
+                    >
+                      <span className="w-2 h-2 rounded-xs bg-red-600 inline-block" />
+                      <span>
+                        Out of Stock: {catalogLoading ? "--" : outOfStockCount}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => jumpToFilteredCatalog("low")}
+                      className="inline-flex items-center gap-1.5 hover:text-gray-900"
+                    >
+                      <span className="w-2 h-2 rounded-xs bg-amber-500 inline-block" />
+                      <span>
+                        Low Stock: {catalogLoading ? "--" : lowStockCount}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => jumpToFilteredCatalog("in")}
+                      className="inline-flex items-center gap-1.5 hover:text-gray-900"
+                    >
+                      <span className="w-2 h-2 rounded-xs bg-emerald-600 inline-block" />
+                      <span>
+                        In Stock: {catalogLoading ? "--" : inStockCount}
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => jumpToFilteredCatalog("all")}
+                      className="inline-flex items-center gap-1.5 hover:text-gray-900"
+                    >
+                      <span className="w-2 h-2 rounded-xs bg-gray-400 inline-block" />
+                      <span>
+                        Unlimited:{" "}
+                        {catalogLoading ? "--" : unlimitedStockCount}
+                      </span>
+                    </button>
+                  </div>
+                  <span className="text-[11px] text-gray-500">
+                    Click any metric to filter menu items below
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-200 p-4 mb-4 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <div className="w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0">
+                  <ScanBarcode className="w-5 h-5 text-gray-700" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-bold text-gray-900">
+                      Barcode Search in Billing
+                    </p>
+                    <span
+                      className={`px-2 py-0.5 rounded border text-[11px] font-semibold uppercase tracking-wide ${
+                        posSettings.barcodeSearchEnabled
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          : "bg-gray-100 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {posSettings.barcodeSearchEnabled ? "Enabled" : "Disabled"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    When enabled, scanning or typing a barcode into the billing search input finds and auto-adds the matching item (items with 0 stock remain blocked).
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={posSettings.barcodeSearchEnabled}
+                  onClick={() =>
+                    void toggleBarcodeSearch(!posSettings.barcodeSearchEnabled)
+                  }
+                  disabled={posSettingsLoading || isSavingPosSettings}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors disabled:opacity-50 ${
+                    posSettings.barcodeSearchEnabled
+                      ? "bg-gray-900 text-white border-gray-900 hover:bg-gray-800"
+                      : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  {isSavingPosSettings
+                    ? "Saving..."
+                    : posSettings.barcodeSearchEnabled
+                      ? "Disable Barcode Search"
+                      : "Enable Barcode Search"}
+                </button>
+              </div>
+            </div>
+
             <div
               ref={categoryFormRef}
               className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 mb-4"
@@ -2552,7 +3682,7 @@ export default function SettingsPage() {
               </p>
               <p className="text-sm text-gray-500 mb-3">
                 {editingProductId
-                  ? "Update item details, SKU, stock, price, category, or picture."
+                  ? "Update item details, SKU, barcode, stock, price, category, or picture."
                   : "Add a new menu item under an existing or custom category."}
               </p>
               <div className="grid grid-cols-12 gap-3">
@@ -2692,17 +3822,42 @@ export default function SettingsPage() {
                         : "Add Item"}
                   </button>
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-12 sm:col-span-4">
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    SKU
+                  </label>
                   <input
                     value={newItem.sku}
                     onChange={(e) =>
                       setNewItem((prev) => ({ ...prev, sku: e.target.value }))
                     }
                     placeholder="Product SKU"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
-                <div className="col-span-4">
+                <div className="col-span-12 sm:col-span-4">
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Barcode
+                  </label>
+                  <div className="relative flex items-center">
+                    <ScanBarcode className="w-4 h-4 text-gray-400 absolute left-3 pointer-events-none" />
+                    <input
+                      value={newItem.barcode}
+                      onChange={(e) =>
+                        setNewItem((prev) => ({ ...prev, barcode: e.target.value }))
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") e.preventDefault();
+                      }}
+                      placeholder="Scan or enter barcode"
+                      className="w-full border border-gray-200 rounded-lg pl-9 pr-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                </div>
+                <div className="col-span-12 sm:col-span-4">
+                  <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                    Stock
+                  </label>
                   <input
                     type="number"
                     min="0"
@@ -2714,10 +3869,29 @@ export default function SettingsPage() {
                         stock: e.target.value,
                       }))
                     }
-                    placeholder="Stock (optional)"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    placeholder="Blank = unlimited"
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                   />
                 </div>
+                {(editingProductId || newItem.stock.trim() !== "") && (
+                  <div className="col-span-12">
+                    <input
+                      value={newItem.stockReason}
+                      onChange={(e) =>
+                        setNewItem((prev) => ({
+                          ...prev,
+                          stockReason: e.target.value,
+                        }))
+                      }
+                      placeholder={
+                        editingProductId
+                          ? "Reason for stock change (optional, logged if stock changes)"
+                          : "Initial stock reason (optional, e.g. Initial stock)"
+                      }
+                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                    />
+                  </div>
+                )}
                 <div className="col-span-12">
                   <input
                     value={newItem.description}
@@ -2839,87 +4013,796 @@ export default function SettingsPage() {
               )}
             </div>
 
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+            <div
+              ref={catalogItemsRef}
+              className="scroll-mt-36 bg-white rounded-2xl border border-gray-200 overflow-hidden"
+            >
               <div className="px-4 py-3 border-b border-gray-100 space-y-3">
-                <div className="flex items-center justify-between gap-3">
-                  <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
-                    All menu items
-                  </p>
-                  <p className="text-xs text-gray-400">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      All menu items
+                    </p>
+                    {catalogStockFilter !== "all" && (
+                      <span className="text-xs font-semibold text-gray-700">
+                        · Showing{" "}
+                        {catalogStockFilter === "low"
+                          ? "Low Stock"
+                          : catalogStockFilter === "out"
+                            ? "Out of Stock"
+                            : "In Stock"}
+                      </span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 tabular-nums">
                     {filteredCatalogProducts.length} / {catalogProducts.length}
                   </p>
                 </div>
+
+                {/* Low Stock Alert Threshold Control */}
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-amber-50/70 rounded-xl border border-amber-200/80 text-sm">
+                  <div className="flex items-center gap-2.5">
+                    <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" />
+                    <div>
+                      <span className="font-bold text-amber-950">Low Stock Alert Threshold:</span>
+                      <span className="text-amber-800 text-xs ml-1.5 block sm:inline">Highlight items when remaining quantity is ≤ this value</span>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min="0"
+                      max="999"
+                      value={lowStockThreshold}
+                      onChange={(e) => {
+                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        setLowStockThreshold(val);
+                        if (typeof window !== "undefined") {
+                          localStorage.setItem("pos_low_stock_threshold", String(val));
+                        }
+                      }}
+                      className="w-20 px-2.5 py-1 text-sm font-bold text-center border border-amber-300 rounded-lg bg-white tabular-nums focus:ring-2 focus:ring-amber-500/20"
+                    />
+                    <span className="text-xs font-semibold text-amber-900">units</span>
+                  </div>
+                </div>
+
+                {/* Quick Stock Filters */}
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setCatalogStockFilter("all")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors tabular-nums ${
+                      catalogStockFilter === "all"
+                        ? "bg-gray-900 text-white border-gray-900"
+                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                    }`}
+                  >
+                    All Items ({catalogProducts.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogStockFilter("low")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                      catalogStockFilter === "low"
+                        ? "bg-amber-600 text-white border-amber-600"
+                        : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+                    }`}
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5" />
+                    <span>Low Stock ({lowStockCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogStockFilter("out")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                      catalogStockFilter === "out"
+                        ? "bg-red-700 text-white border-red-700"
+                        : "bg-red-50 text-red-900 border-red-200 hover:bg-red-100"
+                    }`}
+                  >
+                    <PackageX className="w-3.5 h-3.5" />
+                    <span>Out of Stock ({outOfStockCount})</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCatalogStockFilter("in")}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                      catalogStockFilter === "in"
+                        ? "bg-emerald-700 text-white border-emerald-700"
+                        : "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100"
+                    }`}
+                  >
+                    <CheckCircle2 className="w-3.5 h-3.5" />
+                    <span>In Stock ({inStockCount})</span>
+                  </button>
+                </div>
+
                 <input
                   value={itemQuery}
                   onChange={(e) => setItemQuery(e.target.value)}
-                  placeholder="Search all items by name, SKU, or category..."
+                  placeholder="Search all items by name, SKU, barcode, or category..."
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                 />
               </div>
               {catalogLoading ? (
                 <div className="p-6 text-sm text-gray-500">Loading...</div>
               ) : filteredCatalogProducts.length === 0 ? (
-                <div className="p-6 text-sm text-gray-500">No items found.</div>
+                <div className="p-6 text-sm text-gray-500">No items found matching the selected filter.</div>
               ) : (
-                <div className="divide-y divide-gray-100 max-h-[520px] overflow-y-auto">
-                  {filteredCatalogProducts.map((product) => (
-                    <div
-                      key={product.id}
-                      className="px-4 py-3 grid grid-cols-12 gap-3 items-center"
-                    >
-                      <div className="col-span-1">
-                        <img
-                          src={imageUrl(product.image)}
-                          alt={product.name}
-                          className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-gray-50"
-                        />
-                      </div>
-                      <div className="col-span-3 min-w-0">
-                        <p className="text-sm font-semibold text-gray-900 truncate">
-                          {product.name}
-                        </p>
-                        <p className="text-xs text-gray-500 truncate">
-                          {product.sku
-                            ? `SKU: ${product.sku}`
-                            : product.description}
-                        </p>
-                      </div>
-                      <div className="col-span-2 text-sm text-gray-600">
-                        <div>{product.category}</div>
-                        <div className="text-[10px] uppercase tracking-wide text-gray-400">
-                          {product.source === "custom" ? "Custom" : "Menu"}
+                <div className="divide-y divide-gray-100 max-h-[560px] overflow-y-auto">
+                  {filteredCatalogProducts.map((product) => {
+                    const isOutOfStock = product.stock === 0;
+                    const isLowStock =
+                      product.stock != null &&
+                      product.stock > 0 &&
+                      product.stock <= lowStockThreshold;
+                    return (
+                      <div
+                        key={product.id}
+                        className={`px-4 py-3 flex flex-wrap md:grid md:grid-cols-[52px_minmax(0,1.5fr)_100px_118px_132px_auto] gap-3 items-center transition-colors ${
+                          isOutOfStock
+                            ? "bg-red-50/70 border-l-4 border-l-red-500 hover:bg-red-100/50"
+                            : isLowStock
+                              ? "bg-amber-50/70 border-l-4 border-l-amber-500 hover:bg-amber-100/50"
+                              : "hover:bg-gray-50 border-l-4 border-l-transparent"
+                        }`}
+                      >
+                        <div className="shrink-0">
+                          <img
+                            src={imageUrl(product.image)}
+                            alt={product.name}
+                            className="w-12 h-12 rounded-lg object-cover border border-gray-200 bg-gray-50"
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className="text-sm font-semibold text-gray-900 truncate">
+                              {product.name}
+                            </p>
+                            {isOutOfStock && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-red-600 text-white">
+                                Out of Stock
+                              </span>
+                            )}
+                            {isLowStock && (
+                              <span className="px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-amber-500 text-white">
+                                Low Stock
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-xs text-gray-500 truncate space-y-0.5 mt-0.5">
+                            {product.sku || product.barcode ? (
+                              <p className="font-mono text-[11px] text-gray-500 truncate">
+                                {[
+                                  product.sku ? `SKU: ${product.sku}` : null,
+                                  product.barcode
+                                    ? `Barcode: ${product.barcode}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" · ")}
+                              </p>
+                            ) : (
+                              <p className="truncate">{product.description}</p>
+                            )}
+                          </div>
+                        </div>
+                        <div className="text-sm text-gray-600">
+                          <div>{product.category}</div>
+                          <div className="text-[10px] uppercase tracking-wide text-gray-400">
+                            {product.source === "custom" ? "Custom" : "Menu"}
+                          </div>
+                        </div>
+                        <div className="text-sm">
+                          {isOutOfStock ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-red-100 text-red-800 border border-red-300 tabular-nums">
+                              0 left
+                            </span>
+                          ) : isLowStock ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-bold bg-amber-100 text-amber-900 border border-amber-300 tabular-nums">
+                              {product.stock} left
+                            </span>
+                          ) : product.stock != null ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium text-emerald-800 bg-emerald-50 border border-emerald-200 tabular-nums">
+                              {product.stock} in stock
+                            </span>
+                          ) : (
+                            <span className="text-gray-400 text-xs">Unlimited</span>
+                          )}
+                        </div>
+                        <div className="text-sm font-semibold text-gray-900 tabular-nums">
+                          {product.sizePrices
+                            ? formatSizePrices(product.sizePrices)
+                            : money(product.basePrice)}
+                        </div>
+                        <div className="flex justify-end gap-1.5 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openQuickAdjust(product)}
+                            disabled={deletingProductId === product.id}
+                            className="px-2.5 py-1.5 rounded-lg bg-gray-100 text-gray-800 text-xs font-semibold hover:bg-gray-200 disabled:opacity-50"
+                          >
+                            Stock
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => startEditProduct(product)}
+                            disabled={deletingProductId === product.id}
+                            className="px-2.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 disabled:opacity-50"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => deleteProduct(product)}
+                            disabled={deletingProductId === product.id}
+                            className="px-2.5 py-1.5 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 disabled:opacity-50"
+                          >
+                            {deletingProductId === product.id ? "..." : "Delete"}
+                          </button>
                         </div>
                       </div>
-                      <div className="col-span-1 text-sm text-gray-600">
-                        {product.stock != null ? product.stock : "—"}
-                      </div>
-                      <div className="col-span-2 text-sm font-semibold text-gray-900">
-                        {product.sizePrices
-                          ? formatSizePrices(product.sizePrices)
-                          : money(product.basePrice)}
-                      </div>
-                      <div className="col-span-3 flex justify-end gap-2">
-                        <button
-                          onClick={() => startEditProduct(product)}
-                          disabled={deletingProductId === product.id}
-                          className="px-3 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-sm font-semibold hover:bg-blue-100 disabled:opacity-50"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deleteProduct(product)}
-                          disabled={deletingProductId === product.id}
-                          className="px-3 py-1.5 rounded-lg bg-red-50 text-red-700 text-sm font-semibold hover:bg-red-100 disabled:opacity-50"
-                        >
-                          {deletingProductId === product.id ? "..." : "Delete"}
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>
           </>
+        )}
+
+        {tab === "inventory" && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-200 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0">
+                    <History className="w-5 h-5 text-gray-700" />
+                  </div>
+                  <div>
+                    <h2 className="text-sm font-bold text-gray-900">
+                      Inventory Adjustments &amp; Restock History
+                    </h2>
+                    <p className="text-xs text-gray-500">
+                      Chronological audit trail of restocks, manual adjustments, and order deductions.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setShowInventoryAdjustForm((v) => !v)}
+                    className="px-3.5 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 flex items-center gap-1.5 transition-colors"
+                  >
+                    <PackagePlus className="w-4 h-4" />
+                    <span>
+                      {showInventoryAdjustForm
+                        ? "Close Restock / Adjust"
+                        : "Restock / Adjust Stock"}
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void loadInventoryLogs()}
+                    disabled={inventoryLogsLoading}
+                    aria-label="Refresh inventory logs"
+                    className="px-3 py-2 rounded-lg border border-gray-200 bg-white text-gray-700 text-xs font-semibold hover:bg-gray-50 disabled:opacity-50 flex items-center gap-1.5"
+                  >
+                    <RefreshCw
+                      className={`w-3.5 h-3.5 ${inventoryLogsLoading ? "animate-spin" : ""}`}
+                    />
+                    <span>Refresh</span>
+                  </button>
+                </div>
+              </div>
+
+              {showInventoryAdjustForm && (
+                <div className="mt-4 pt-4 border-t border-gray-200 space-y-3">
+                  <div className="grid grid-cols-12 gap-3">
+                    <div className="col-span-12 md:col-span-5">
+                      <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                        Product
+                      </label>
+                      <select
+                        value={adjustProductId}
+                        onChange={(e) => setAdjustProductId(e.target.value)}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="">Select a product...</option>
+                        {sortedCatalogProductsForSelect.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name} (
+                            {p.stock == null ? "Unlimited" : `${p.stock} in stock`}
+                            )
+                            {p.barcode ? ` · ${p.barcode}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="col-span-6 md:col-span-3">
+                      <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                        Adjustment Type
+                      </label>
+                      <select
+                        value={adjustMode}
+                        onChange={(e) =>
+                          setAdjustMode(
+                            e.target.value as "add" | "subtract" | "set",
+                          )
+                        }
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      >
+                        <option value="add">Restock / Add (+)</option>
+                        <option value="subtract">Deduct (-)</option>
+                        <option value="set">Set Exact Stock</option>
+                      </select>
+                    </div>
+                    <div className="col-span-6 md:col-span-2">
+                      <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                        Quantity
+                      </label>
+                      <input
+                        type="number"
+                        min={adjustMode === "set" ? "0" : "1"}
+                        step="1"
+                        value={adjustQuantity}
+                        onChange={(e) => setAdjustQuantity(e.target.value)}
+                        placeholder={adjustMode === "set" ? "Blank = unlim." : "Qty"}
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                    </div>
+                    <div className="col-span-12 md:col-span-2 flex items-end">
+                      <button
+                        type="button"
+                        onClick={() => void submitInventoryAdjustment()}
+                        disabled={isAdjustingStock}
+                        className="w-full py-2 px-3 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-50 transition-colors"
+                      >
+                        {isAdjustingStock ? "Saving..." : "Apply"}
+                      </button>
+                    </div>
+                    <div className="col-span-12">
+                      <label className="block text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1">
+                        Reason
+                      </label>
+                      <input
+                        type="text"
+                        value={adjustReason}
+                        onChange={(e) => setAdjustReason(e.target.value)}
+                        placeholder="Reason (e.g. Restock, Supplier delivery, Inventory audit, Damaged)"
+                        className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                      />
+                      <div className="flex flex-wrap gap-1.5 mt-2">
+                        {INVENTORY_REASON_PRESETS.map((preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            onClick={() => setAdjustReason(preset)}
+                            className={`px-2 py-1 rounded text-[11px] font-medium border transition-colors ${
+                              adjustReason === preset
+                                ? "bg-blue-50 border-blue-300 text-blue-800"
+                                : "bg-gray-50 border-gray-200 text-gray-600 hover:bg-gray-100"
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-white rounded-xl border border-gray-200 p-3.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                  Log Entries
+                </p>
+                <p className="text-xl font-bold text-gray-900 mt-1 tabular-nums">
+                  {inventorySummary.count}
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-3.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1">
+                  <PackagePlus className="w-3.5 h-3.5 text-emerald-700" />
+                  <span>Units Added</span>
+                </p>
+                <p className="text-xl font-bold text-emerald-700 mt-1 tabular-nums">
+                  +{inventorySummary.totalAdded}
+                </p>
+              </div>
+              <div className="bg-white rounded-xl border border-gray-200 p-3.5">
+                <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-500 flex items-center gap-1">
+                  <PackageMinus className="w-3.5 h-3.5 text-red-700" />
+                  <span>Units Deducted</span>
+                </p>
+                <p className="text-xl font-bold text-red-700 mt-1 tabular-nums">
+                  -{inventorySummary.totalDeducted}
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white rounded-2xl border border-gray-200 overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-200 space-y-3">
+                <div className="flex flex-wrap items-center gap-2">
+                  {(
+                    [
+                      { id: "", label: "All Activity" },
+                      { id: "in", label: "Restocks (+)" },
+                      { id: "out", label: "Deductions (-)" },
+                      { id: "manual", label: "Manual Adjustments" },
+                      { id: "sale", label: "Order Deductions" },
+                      { id: "scan", label: "Barcode Scans" },
+                    ] as const
+                  ).map((f) => (
+                    <button
+                      key={f.id || "all"}
+                      type="button"
+                      onClick={() => setInventoryFilter(f.id)}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        inventoryFilter === f.id
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      {f.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="relative flex items-center">
+                  <Search className="w-4 h-4 text-gray-400 absolute left-3 pointer-events-none" />
+                  <input
+                    type="text"
+                    value={inventoryQuery}
+                    onChange={(e) => setInventoryQuery(e.target.value)}
+                    placeholder="Filter by product name, SKU, barcode, order #, or reason..."
+                    className="w-full border border-gray-200 rounded-xl pl-9 pr-8 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                  />
+                  {inventoryQuery && (
+                    <button
+                      type="button"
+                      onClick={() => setInventoryQuery("")}
+                      aria-label="Clear filter"
+                      className="absolute right-2.5 text-gray-400 hover:text-gray-600"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {inventoryLogsLoading ? (
+                <div className="p-8 text-center text-sm text-gray-500">
+                  Loading inventory history...
+                </div>
+              ) : inventoryLogs.length === 0 ? (
+                <div className="p-8 text-center space-y-2">
+                  <CheckCircle2 className="w-7 h-7 text-gray-300 mx-auto" />
+                  <p className="text-sm font-medium text-gray-700">
+                    {inventoryQuery || inventoryFilter
+                      ? "No inventory entries match the selected filter."
+                      : "No inventory adjustments logged yet."}
+                  </p>
+                  <p className="text-xs text-gray-500">
+                    Stock updates in Catalog, manual restocks, barcode scans, and order sales will appear here.
+                  </p>
+                </div>
+              ) : (
+                <div className="overflow-x-auto max-h-[560px] overflow-y-auto">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-gray-50 border-b border-gray-200 sticky top-0 z-10">
+                      <tr>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          Product Name
+                        </th>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          Date
+                        </th>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500 text-right">
+                          Quantity Changed
+                        </th>
+                        <th className="px-4 py-2.5 text-[11px] font-semibold uppercase tracking-wide text-gray-500">
+                          Reason
+                        </th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {inventoryLogs.map((entry) => {
+                        const badge = inventorySourceLabel(entry.source);
+                        const signed =
+                          entry.quantityChange > 0
+                            ? `+${entry.quantityChange}`
+                            : String(entry.quantityChange);
+                        const prevLabel =
+                          entry.previousStock == null ? "Unlimited" : String(entry.previousStock);
+                        const nextLabel =
+                          entry.newStock == null ? "Unlimited" : String(entry.newStock);
+                        return (
+                          <tr key={entry.id} className="hover:bg-gray-50/70">
+                            <td className="px-4 py-3 align-top">
+                              <p className="text-sm font-semibold text-gray-900">
+                                {entry.productName}
+                              </p>
+                              {(entry.sku || entry.barcode) && (
+                                <p className="text-[11px] text-gray-500 font-mono mt-0.5">
+                                  {[
+                                    entry.sku ? `SKU: ${entry.sku}` : null,
+                                    entry.barcode
+                                      ? `Barcode: ${entry.barcode}`
+                                      : null,
+                                  ]
+                                    .filter(Boolean)
+                                    .join(" · ")}
+                                </p>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 align-top text-xs text-gray-600 whitespace-nowrap tabular-nums">
+                              {formatInventoryDate(entry.createdAt)}
+                            </td>
+                            <td className="px-4 py-3 align-top text-right whitespace-nowrap">
+                              <span
+                                className={`font-mono text-sm font-bold tabular-nums ${
+                                  entry.quantityChange > 0
+                                    ? "text-emerald-700"
+                                    : entry.quantityChange < 0
+                                      ? "text-red-700"
+                                      : "text-gray-700"
+                                }`}
+                              >
+                                {signed}
+                              </span>
+                              <p className="text-[11px] text-gray-500 font-mono tabular-nums mt-0.5">
+                                {prevLabel} → {nextLabel}
+                              </p>
+                            </td>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <span
+                                  className={`px-1.5 py-0.5 rounded border text-[10px] font-semibold uppercase tracking-wide ${badge.cls}`}
+                                >
+                                  {badge.label}
+                                </span>
+                                <span className="text-sm text-gray-800">
+                                  {entry.reason}
+                                </span>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {tab === "shortcuts" && (
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4 border-b border-gray-100 pb-4">
+                <div>
+                  <h2 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                    <span>⌨️ Keyboard Shortcuts</span>
+                  </h2>
+                  <p className="text-sm text-gray-500 mt-0.5">
+                    Configure keyboard shortcuts for quick POS actions. Click &quot;Change Button&quot; to assign any key.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={handleResetShortcuts}
+                  className="px-3 py-1.5 rounded-lg border border-gray-200 bg-white text-gray-700 text-xs font-semibold hover:bg-gray-50 transition-colors shadow-xs"
+                >
+                  ↺ Reset to Defaults
+                </button>
+              </div>
+
+              {/* Action List */}
+              <div className="divide-y divide-gray-100 border border-gray-100 rounded-xl overflow-hidden mb-4">
+                {(
+                  [
+                    {
+                      action: "newOrder" as const,
+                      title: "New Order",
+                      icon: "✨",
+                      desc: "Clear cart and prepare a fresh new order",
+                    },
+                    {
+                      action: "history" as const,
+                      title: "Sales History",
+                      icon: "📜",
+                      desc: "Open completed order history & receipts",
+                    },
+                    {
+                      action: "orders" as const,
+                      title: "Saved Orders",
+                      icon: "📋",
+                      desc: "Open unpaid saved orders list",
+                    },
+                    {
+                      action: "saveOrder" as const,
+                      title: "Save Order",
+                      icon: "💾",
+                      desc: "Save order as unpaid/draft without checking out",
+                    },
+                    {
+                      action: "payOrder" as const,
+                      title: "Pay / Checkout",
+                      icon: "💵",
+                      desc: "Cash checkout, save sales record, and open receipt",
+                    },
+                  ]
+                ).map(({ action, title, icon, desc }) => {
+                  const cfg = shortcuts[action] || DEFAULT_SHORTCUTS[action];
+                  const isEditing = editingShortcutAction === action;
+                  return (
+                    <div
+                      key={action}
+                      className={`p-4 flex flex-wrap items-center justify-between gap-4 transition-colors ${
+                        isEditing ? "bg-blue-50/70" : "bg-white hover:bg-gray-50/50"
+                      }`}
+                    >
+                      <div className="flex items-center gap-3 min-w-[200px]">
+                        <span className="text-2xl">{icon}</span>
+                        <div>
+                          <p className="text-sm font-bold text-gray-900">{title}</p>
+                          <p className="text-xs text-gray-500">{desc}</p>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        <kbd className="px-3 py-1.5 rounded-lg bg-gray-900 text-white font-mono font-bold text-xs shadow-xs tracking-wider border border-gray-800">
+                          {cfg.label}
+                        </kbd>
+
+                        <button
+                          type="button"
+                          onClick={() => startEditShortcut(action)}
+                          className="px-3.5 py-1.5 rounded-lg bg-blue-50 text-blue-700 text-xs font-semibold hover:bg-blue-100 transition-colors shadow-xs"
+                        >
+                          Change Button
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Editing key combo panel */}
+              {editingShortcutAction && (
+                <div className="p-4 bg-blue-50/90 rounded-xl border border-blue-200 animate-in fade-in">
+                  <div className="flex items-center justify-between gap-2 mb-3">
+                    <p className="text-sm font-bold text-blue-950">
+                      Configure button for:{" "}
+                      <span className="text-blue-700 font-extrabold uppercase">
+                        {shortcuts[editingShortcutAction]?.description || editingShortcutAction}
+                      </span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setEditingShortcutAction(null)}
+                      className="text-xs text-gray-500 hover:text-gray-800"
+                    >
+                      ✕ Cancel
+                    </button>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-4 bg-white p-3 rounded-lg border border-blue-100 shadow-xs">
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={tempKeyCombo.altKey}
+                          onChange={(e) =>
+                            setTempKeyCombo((prev) => ({
+                              ...prev,
+                              altKey: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Alt
+                      </label>
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-gray-700 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={tempKeyCombo.ctrlKey}
+                          onChange={(e) =>
+                            setTempKeyCombo((prev) => ({
+                              ...prev,
+                              ctrlKey: e.target.checked,
+                            }))
+                          }
+                          className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                        />
+                        Ctrl
+                      </label>
+                    </div>
+
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs text-gray-500">+ Key:</span>
+                      <select
+                        value={tempKeyCombo.key.toLowerCase()}
+                        onChange={(e) =>
+                          setTempKeyCombo((prev) => ({
+                            ...prev,
+                            key: e.target.value.toLowerCase(),
+                          }))
+                        }
+                        className="px-2.5 py-1.5 border border-gray-300 rounded-lg text-sm font-mono font-bold bg-white"
+                      >
+                        {"abcdefghijklmnopqrstuvwxyz".split("").map((letter) => (
+                          <option key={letter} value={letter}>
+                            {letter.toUpperCase()}
+                          </option>
+                        ))}
+                        {"0123456789".split("").map((num) => (
+                          <option key={num} value={num}>
+                            {num}
+                          </option>
+                        ))}
+                        <option value="f1">F1</option>
+                        <option value="f2">F2</option>
+                        <option value="f3">F3</option>
+                        <option value="f4">F4</option>
+                        <option value="f5">F5</option>
+                        <option value="f6">F6</option>
+                        <option value="f7">F7</option>
+                        <option value="f8">F8</option>
+                        <option value="f9">F9</option>
+                        <option value="f10">F10</option>
+                        <option value="f11">F11</option>
+                        <option value="f12">F12</option>
+                        <option value="space">Space</option>
+                      </select>
+                    </div>
+
+                    <div className="ml-auto flex items-center gap-2">
+                      <span className="text-xs text-gray-500">Preview:</span>
+                      <kbd className="px-2.5 py-1 rounded bg-blue-900 text-white font-mono font-bold text-xs shadow-xs">
+                        {formatKeyCombo(
+                          tempKeyCombo.key,
+                          tempKeyCombo.altKey,
+                          tempKeyCombo.ctrlKey,
+                        )}
+                      </kbd>
+                      <button
+                        type="button"
+                        onClick={saveCurrentShortcut}
+                        className="px-4 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold transition-colors shadow-xs ml-2"
+                      >
+                        Save Shortcut
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Fixed Reference Key Combos */}
+              <div className="mt-5 pt-4 border-t border-gray-100">
+                <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">
+                  Built-in dialog shortcuts
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600">
+                  <div className="p-2.5 rounded-lg bg-gray-50 flex items-center justify-between border border-gray-100">
+                    <span>Confirm print / complete sale in Print Modal</span>
+                    <kbd className="px-2 py-0.5 rounded bg-gray-200 text-gray-800 font-mono font-bold">
+                      Enter
+                    </kbd>
+                  </div>
+                  <div className="p-2.5 rounded-lg bg-gray-50 flex items-center justify-between border border-gray-100">
+                    <span>Close Print Modal or dismiss popup</span>
+                    <kbd className="px-2 py-0.5 rounded bg-gray-200 text-gray-800 font-mono font-bold">
+                      Esc
+                    </kbd>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
         )}
 
         {tab === "backup" && (
@@ -3135,15 +5018,71 @@ export default function SettingsPage() {
         )}
 
         {tab === "menu" && (
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-4">
-            <div>
-              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
-                Menu item style
-              </p>
-              <p className="text-sm text-gray-500">
-                Change size, colors, and font for menu tiles on the main screen.
-              </p>
+          <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-wrap items-center justify-between gap-4">
+              <div className="flex items-start gap-3 min-w-0 flex-1">
+                <div className="w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0">
+                  <Clock className="w-5 h-5 text-gray-700" />
+                </div>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-bold text-gray-900">
+                      Header Digital Clock
+                    </p>
+                    <span
+                      className={`px-2 py-0.5 rounded border text-[11px] font-semibold uppercase tracking-wide ${
+                        posSettings.digitalClockEnabled
+                          ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                          : "bg-gray-100 text-gray-600 border-gray-200"
+                      }`}
+                    >
+                      {posSettings.digitalClockEnabled ? "Shown" : "Hidden"}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Show or hide the live digital clock (with seconds) above the navigation buttons on the main billing screen.
+                  </p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => void setDigitalClockVisibility(true)}
+                  disabled={posSettingsLoading || isSavingPosSettings}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
+                    posSettings.digitalClockEnabled
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  <Eye className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Show</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void setDigitalClockVisibility(false)}
+                  disabled={posSettingsLoading || isSavingPosSettings}
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
+                    !posSettings.digitalClockEnabled
+                      ? "bg-gray-900 text-white border-gray-900"
+                      : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
+                  }`}
+                >
+                  <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
+                  <span>Hide</span>
+                </button>
+              </div>
             </div>
+
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 space-y-4">
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+                  Menu item style
+                </p>
+                <p className="text-sm text-gray-500">
+                  Change size, colors, and font for menu tiles on the main screen.
+                </p>
+              </div>
             {menuAppearanceLoading ? (
               <p className="text-sm text-gray-500">Loading...</p>
             ) : (
@@ -3346,6 +5285,7 @@ export default function SettingsPage() {
                 </div>
               </>
             )}
+            </div>
           </div>
         )}
 
@@ -3420,24 +5360,31 @@ export default function SettingsPage() {
                 orders), all balances / sales totals, and resets receipt numbering.
                 Catalog items, categories, and receipt branding are kept.
               </p>
-              <div className="flex flex-wrap items-end gap-3">
+              <div className="flex flex-wrap items-end gap-3 mb-2">
                 <div className="min-w-[200px]">
                   <label className="block text-xs text-red-700/70 mb-1">
-                    Enter confirmation code
+                    Enter confirmation code (Default: 1234)
                   </label>
                   <input
                     type="password"
                     value={wipeConfirmInput}
                     onChange={(e) => setWipeConfirmInput(e.target.value)}
                     className="w-full border border-red-200 rounded-lg px-3 py-2 text-sm bg-white"
-                    placeholder="Confirmation code"
+                    placeholder="e.g. 1234"
                   />
                 </div>
                 <button
                   type="button"
+                  onClick={() => setWipeConfirmInput("1234")}
+                  className="px-3 py-2 rounded-lg border border-red-200 bg-white text-red-800 text-xs font-semibold hover:bg-red-100 transition-colors"
+                >
+                  Fill Default Code (1234)
+                </button>
+                <button
+                  type="button"
                   onClick={() => void wipeAllData()}
                   disabled={isWipingData || !wipeConfirmInput.trim()}
-                  className="px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-semibold hover:bg-red-800 disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-semibold hover:bg-red-800 disabled:opacity-50 transition-colors shadow-xs"
                 >
                   {isWipingData ? "Removing..." : "Remove All Data"}
                 </button>

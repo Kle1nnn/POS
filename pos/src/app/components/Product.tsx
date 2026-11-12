@@ -10,5 +10,6 @@ export interface Product {
   hasExtraToppings?: boolean;
   hasSauceOptions?: boolean;
   sku?: string;
+  barcode?: string;
   stock?: number | null;
 }

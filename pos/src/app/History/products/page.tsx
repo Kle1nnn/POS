@@ -66,14 +66,18 @@ export default function HistoryProductSalesPage() {
           const stateData = await stateRes.json();
           if (stateData.currentBusinessDate) {
             date = stateData.currentBusinessDate;
-            setBusinessDate(date);
           }
         }
-        if (date) await fetchProductSales(date);
-        else setLoading(false);
+        if (!date) {
+          date = new Date().toISOString().slice(0, 10);
+        }
+        setBusinessDate(date);
+        await fetchProductSales(date);
       } catch (e) {
         console.error("Failed to load store state", e);
-        setLoading(false);
+        const fallback = new Date().toISOString().slice(0, 10);
+        setBusinessDate(fallback);
+        await fetchProductSales(fallback);
       }
     };
     init();
