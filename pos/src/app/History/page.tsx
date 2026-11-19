@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import PrintModal from "../components/PrintModal";
+import PosTopNav from "../components/PosTopNav";
 import { CartItem } from "../context/CartContext";
 import { useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrdersContext";
@@ -29,19 +30,6 @@ export default function HistoryPage() {
   const [showTodaySales, setShowTodaySales] = useState(false);
   const [showAllTime, setShowAllTime] = useState(false);
 
-  const [printModalOpen, setPrintModalOpen] = useState(false);
-  const [printOrder, setPrintOrder] = useState<{
-    id: string;
-    items: CartItem[];
-    total: number;
-    notes: string;
-    instructions: string;
-    customer?: { name: string; phone: string };
-    orderType?: string;
-    tableNumber?: number | null;
-    placedAt?: string | null;
-  } | null>(null);
-
   const formatLocalDateTime = (value?: string | null) => {
     if (!value) return "";
     const parsed = new Date(value);
@@ -49,8 +37,8 @@ export default function HistoryPage() {
     return parsed.toLocaleString();
   };
 
-  const openPrint = (order: any) => {
-    const items: CartItem[] = (order.items || []).map((item: any) => ({
+  const mapOrderItems = (order: any): CartItem[] =>
+    (order.items || []).map((item: any) => ({
       ...item,
       cartKey:
         item.cartKey ??
@@ -58,12 +46,19 @@ export default function HistoryPage() {
       quantity: item.quantity ?? 1,
       price: item.price ?? item.unit_price ?? 0,
     }));
+
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState<any | null>(null);
+
+  const openPrintModal = (order: any) => {
+    const items = mapOrderItems(order);
     setPrintOrder({
       id: order.orderCode,
       items,
       total: Number(order.total),
       notes: order.notes ?? "",
       instructions: order.instructions ?? "",
+      isPaid: true,
       customer: order.customerName
         ? { name: order.customerName, phone: order.customerPhone ?? "" }
         : undefined,
@@ -174,6 +169,7 @@ export default function HistoryPage() {
         { method: "DELETE" },
       );
       if (!res.ok) throw new Error("Delete failed");
+      window.dispatchEvent(new Event("catalog-updated"));
       const salesRes = await fetch("/api/sales");
       if (salesRes.ok) setSales(await salesRes.json());
       if (searchActive && receiptSearch.trim()) {
@@ -207,6 +203,7 @@ export default function HistoryPage() {
       orderType: order.orderType ?? undefined,
       tableNumber: order.tableNumber ?? null,
       createdAt: order.createdAt ?? undefined,
+      items,
     });
     router.push("/");
   };
@@ -246,7 +243,10 @@ export default function HistoryPage() {
       {printOrder && (
         <PrintModal
           isOpen={printModalOpen}
-          onClose={() => setPrintModalOpen(false)}
+          onClose={() => {
+            setPrintModalOpen(false);
+            setPrintOrder(null);
+          }}
           cartItems={printOrder.items}
           totalPrice={printOrder.total}
           notes={printOrder.notes}
@@ -260,55 +260,7 @@ export default function HistoryPage() {
         />
       )}
 
-      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-gray-900">🕐 Order History</h1>
-        <div className="flex gap-2">
-          <button
-            onClick={() => router.push("/")}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] active:scale-95 transition-all"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
-              />
-            </svg>
-            Menu
-          </button>
-          <button
-            onClick={() => router.push("/Orders")}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#7a4a00] text-white text-sm font-semibold hover:bg-amber-700 active:scale-95 transition-all"
-          >
-            <svg
-              className="w-4 h-4"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-              />
-            </svg>
-            Orders
-          </button>
-          <button
-            onClick={() => router.push("/settings")}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 active:scale-95 transition-all"
-          >
-            Settings
-          </button>
-        </div>
-      </div>
+      <PosTopNav activePage="history" title="Order History" />
 
       <div className="p-6 max-w-3xl">
         <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-4 space-y-3">
@@ -467,7 +419,7 @@ export default function HistoryPage() {
                       {order.orderType && (
                         <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
                           {order.orderType === "Dine In" && order.tableNumber
-                            ? `🍽️ Dine In · Table #${order.tableNumber}`
+                            ? `🪑 Table #${order.tableNumber}`
                             : order.orderType === "Delivery"
                               ? "🛵 Delivery"
                               : order.orderType === "Dine In"
@@ -552,10 +504,12 @@ export default function HistoryPage() {
                   </span>
                   <div className="flex gap-2">
                     <button
-                      onClick={() => openPrint(order)}
-                      className="text-sm px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold transition-colors active:scale-95"
+                      onClick={() => openPrintModal(order)}
+                      className="text-sm px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold transition-colors active:scale-95 flex items-center gap-1.5"
+                      title="Print Bill Receipt"
                     >
-                      🖨️ Print
+                      <span>🖨️</span>
+                      <span>Print</span>
                     </button>
                     <button
                       onClick={() => handleEdit(order)}

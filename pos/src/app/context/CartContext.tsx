@@ -52,6 +52,10 @@ type CartContextType = {
   updatePrice: (cartKey: string, newPrice: number) => void;
   loadOrder: (items: CartItem[]) => void;
   totalPrice: number;
+  productSearchQuery: string;
+  setProductSearchQuery: (value: string) => void;
+  scanSubmitCount: number;
+  submitProductSearchScan: () => void;
 };
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -59,6 +63,12 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const cartItemsRef = useRef<CartItem[]>([]);
+  const [productSearchQuery, setProductSearchQuery] = useState("");
+  const [scanSubmitCount, setScanSubmitCount] = useState(0);
+
+  const submitProductSearchScan = useCallback(() => {
+    setScanSubmitCount((c) => c + 1);
+  }, []);
 
   const updateCart = useCallback((next: CartItem[]) => {
     cartItemsRef.current = next;
@@ -193,6 +203,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
         updatePrice,
         loadOrder,
         totalPrice,
+        productSearchQuery,
+        setProductSearchQuery,
+        scanSubmitCount,
+        submitProductSearchScan,
       }}
     >
       {children}

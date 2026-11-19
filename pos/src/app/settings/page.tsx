@@ -1,15 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowDownRight,
+  ArrowUp,
+  ArrowUpDown,
   CheckCircle2,
-  Clock,
-  Eye,
-  EyeOff,
+  FileSpreadsheet,
   History,
+  Image as ImageIcon,
   PackageMinus,
   PackagePlus,
   PackageX,
@@ -17,11 +18,14 @@ import {
   ScanBarcode,
   Search,
   SlidersHorizontal,
+  Trash2,
+  Upload,
+  UtensilsCrossed,
   X,
 } from "lucide-react";
+import PosTopNav from "../components/PosTopNav";
 import PrintModal from "../components/PrintModal";
 import { CartItem } from "../context/CartContext";
-import { useOrders } from "../context/OrdersContext";
 import {
   clearReceiptSettingsCache,
   printReportHtml,
@@ -36,6 +40,8 @@ import {
 } from "../../lib/menu-appearance-shared";
 import {
   DEFAULT_POS_SETTINGS,
+  LOW_STOCK_THRESHOLD_CHANGED_EVENT,
+  LOW_STOCK_THRESHOLD_STORAGE_KEY,
   POS_SETTINGS_CHANGED_EVENT,
   type PosSettings,
 } from "../../lib/pos-settings-shared";
@@ -63,6 +69,23 @@ type Tab =
   | "backup"
   | "menu"
   | "danger";
+
+const SETTINGS_TABS: ReadonlyArray<{
+  id: Tab;
+  label: string;
+}> = [
+  { id: "contacts", label: "Contacts" },
+  { id: "catalog", label: "Catalog" },
+  { id: "inventory", label: "Inventory Log" },
+  { id: "shortcuts", label: "⌨️ Shortcuts" },
+  { id: "menu", label: "Menu Style" },
+  { id: "reports", label: "Reports" },
+  { id: "ledger", label: "Customer Ledger" },
+  { id: "receipt", label: "Receipt Settings" },
+  { id: "receiptNumber", label: "Receipt Number" },
+  { id: "backup", label: "Full Backup" },
+  { id: "danger", label: "Remove All Data" },
+];
 
 type Customer = {
   id: number;
@@ -359,8 +382,6 @@ function monthLabel(year: number, month: number) {
 }
 
 export default function SettingsPage() {
-  const router = useRouter();
-  const { savedOrders } = useOrders();
   const [tab, setTab] = useState<Tab>("contacts");
   const [toast, setToast] = useState<string | null>(null);
 
@@ -398,6 +419,8 @@ export default function SettingsPage() {
     return 5;
   });
   const [catalogStockFilter, setCatalogStockFilter] = useState<"all" | "low" | "out" | "in">("all");
+  const [catalogSortBy, setCatalogSortBy] = useState<"default" | "name" | "stock" | "category">("default");
+  const [catalogSortDir, setCatalogSortDir] = useState<"asc" | "desc">("asc");
 
   // In-app Restore Confirmation Dialog (replaces window.confirm)
   const [pendingRestore, setPendingRestore] = useState<{
@@ -599,8 +622,13 @@ export default function SettingsPage() {
   const [isSavingReceiptNumber, setIsSavingReceiptNumber] = useState(false);
   const [isUploadingReceiptLogo, setIsUploadingReceiptLogo] = useState(false);
   const [isUploadingPaymentImage, setIsUploadingPaymentImage] = useState(false);
+  const [menuHeaderTextDraft, setMenuHeaderTextDraft] = useState<string | null>(
+    null,
+  );
+  const [isUploadingMenuLogo, setIsUploadingMenuLogo] = useState(false);
   const receiptLogoInputRef = useRef<HTMLInputElement>(null);
   const paymentImageInputRef = useRef<HTMLInputElement>(null);
+  const menuLogoInputRef = useRef<HTMLInputElement>(null);
 
   const showToast = (message: string) => {
     setToast(message);
@@ -647,6 +675,20 @@ export default function SettingsPage() {
       const res = await fetch("/api/pos-settings");
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.settings) {
+        const nextThreshold =
+          typeof data.settings.lowStockThreshold === "number" &&
+          Number.isFinite(data.settings.lowStockThreshold)
+            ? Math.max(0, Math.floor(data.settings.lowStockThreshold))
+            : DEFAULT_POS_SETTINGS.lowStockThreshold;
+        const nextMenuLogo =
+          typeof data.settings.menuLogoImage === "string"
+            ? data.settings.menuLogoImage
+            : DEFAULT_POS_SETTINGS.menuLogoImage;
+        const nextMenuText =
+          typeof data.settings.menuHeaderText === "string" &&
+          data.settings.menuHeaderText.trim()
+            ? data.settings.menuHeaderText.trim()
+            : DEFAULT_POS_SETTINGS.menuHeaderText;
         setPosSettings({
           barcodeSearchEnabled:
             typeof data.settings.barcodeSearchEnabled === "boolean"
@@ -656,7 +698,28 @@ export default function SettingsPage() {
             typeof data.settings.digitalClockEnabled === "boolean"
               ? data.settings.digitalClockEnabled
               : DEFAULT_POS_SETTINGS.digitalClockEnabled,
+          lowStockThreshold: nextThreshold,
+          tableManagementEnabled:
+            typeof data.settings.tableManagementEnabled === "boolean"
+              ? data.settings.tableManagementEnabled
+              : DEFAULT_POS_SETTINGS.tableManagementEnabled,
+          menuLogoImage: nextMenuLogo,
+          menuHeaderText: nextMenuText,
         });
+        setLowStockThreshold(nextThreshold);
+        try {
+          localStorage.setItem(
+            LOW_STOCK_THRESHOLD_STORAGE_KEY,
+            String(nextThreshold),
+          );
+          window.dispatchEvent(
+            new CustomEvent(LOW_STOCK_THRESHOLD_CHANGED_EVENT, {
+              detail: nextThreshold,
+            }),
+          );
+        } catch {
+          /* ignore */
+        }
       }
     } catch (error) {
       console.error("Failed to load POS settings", error);
@@ -700,37 +763,112 @@ export default function SettingsPage() {
     }
   };
 
-  const setDigitalClockVisibility = async (nextVisible: boolean) => {
+  const saveMenuBranding = async (
+    patch: { menuLogoImage?: string; menuHeaderText?: string },
+    successMsg: string,
+  ) => {
     setIsSavingPosSettings(true);
     try {
       const res = await fetch("/api/pos-settings", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ digitalClockEnabled: nextVisible }),
+        body: JSON.stringify(patch),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error ?? "Failed to update digital clock setting");
+        throw new Error(data.error ?? "Failed to save menu header settings");
       }
       const updated: PosSettings = data.settings ?? {
         ...posSettings,
-        digitalClockEnabled: nextVisible,
+        ...patch,
+      };
+      setPosSettings(updated);
+      if (patch.menuHeaderText !== undefined) {
+        setMenuHeaderTextDraft(null);
+      }
+      window.dispatchEvent(
+        new CustomEvent(POS_SETTINGS_CHANGED_EVENT, { detail: updated }),
+      );
+      showToast(successMsg);
+    } catch (error) {
+      console.error("Failed to save menu header settings", error);
+      showToast(
+        error instanceof Error
+          ? error.message
+          : "Failed to save menu header settings",
+      );
+    } finally {
+      setIsSavingPosSettings(false);
+    }
+  };
+
+  const uploadMenuLogo = async (file: File) => {
+    setIsUploadingMenuLogo(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/catalog/upload", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "Upload failed");
+
+      const previous = posSettings.menuLogoImage;
+      await saveMenuBranding(
+        { menuLogoImage: data.image as string },
+        "Menu logo updated",
+      );
+      if (isUploadedImage(previous) && previous !== data.image) {
+        await deleteUploadedImage(previous);
+      }
+    } catch (error) {
+      console.error("Failed to upload menu logo", error);
+      showToast(error instanceof Error ? error.message : "Upload failed");
+    } finally {
+      setIsUploadingMenuLogo(false);
+    }
+  };
+
+  const removeMenuLogo = async () => {
+    const previous = posSettings.menuLogoImage;
+    await saveMenuBranding({ menuLogoImage: "" }, "Menu logo removed");
+    if (isUploadedImage(previous)) {
+      await deleteUploadedImage(previous);
+    }
+  };
+
+  const toggleTableManagement = async (nextEnabled: boolean) => {
+    setIsSavingPosSettings(true);
+    try {
+      const res = await fetch("/api/pos-settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tableManagementEnabled: nextEnabled }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) {
+        throw new Error(data.error ?? "Failed to update table management setting");
+      }
+      const updated: PosSettings = data.settings ?? {
+        ...posSettings,
+        tableManagementEnabled: nextEnabled,
       };
       setPosSettings(updated);
       window.dispatchEvent(
         new CustomEvent(POS_SETTINGS_CHANGED_EVENT, { detail: updated }),
       );
       showToast(
-        updated.digitalClockEnabled
-          ? "Digital clock shown above navigation buttons"
-          : "Digital clock hidden above navigation buttons",
+        updated.tableManagementEnabled
+          ? "Dine-In Table Management enabled"
+          : "Dine-In Table Management disabled",
       );
     } catch (error) {
-      console.error("Failed to save digital clock setting", error);
+      console.error("Failed to save table management setting", error);
       showToast(
         error instanceof Error
           ? error.message
-          : "Failed to save digital clock setting",
+          : "Failed to save table management setting",
       );
     } finally {
       setIsSavingPosSettings(false);
@@ -874,8 +1012,38 @@ export default function SettingsPage() {
   }, [ledgerCustomerKey, ledgerViewMode, ledgerYear, ledgerMonth]);
 
   useEffect(() => {
+    const t = window.setTimeout(() => {
+      const params = new URLSearchParams(window.location.search);
+      const requestedTab = params.get("tab") as Tab | null;
+      const validTabs: Tab[] = [
+        "contacts",
+        "catalog",
+        "inventory",
+        "receipt",
+        "receiptNumber",
+        "menu",
+        "shortcuts",
+        "backup",
+        "reports",
+        "ledger",
+        "danger",
+      ];
+      if (requestedTab && validTabs.includes(requestedTab)) {
+        setTab(requestedTab);
+      }
+      const requestedStock = params.get("stock");
+      if (
+        requestedStock === "all" ||
+        requestedStock === "low" ||
+        requestedStock === "out" ||
+        requestedStock === "in"
+      ) {
+        setCatalogStockFilter(requestedStock);
+      }
+    }, 0);
     loadCustomers();
     void loadPosSettings();
+    return () => window.clearTimeout(t);
   }, [loadPosSettings]);
 
   useEffect(() => {
@@ -1234,16 +1402,47 @@ export default function SettingsPage() {
     }
 
     const q = itemQuery.trim().toLowerCase();
-    if (!q) return list;
-    return list.filter(
-      (p) =>
-        p.name.toLowerCase().includes(q) ||
-        p.category.toLowerCase().includes(q) ||
-        (p.description || "").toLowerCase().includes(q) ||
-        (p.sku || "").toLowerCase().includes(q) ||
-        (p.barcode || "").toLowerCase().includes(q),
-    );
-  }, [catalogProducts, itemQuery, catalogStockFilter, lowStockThreshold]);
+    if (q) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(q) ||
+          p.category.toLowerCase().includes(q) ||
+          (p.description || "").toLowerCase().includes(q) ||
+          (p.sku || "").toLowerCase().includes(q) ||
+          (p.barcode || "").toLowerCase().includes(q),
+      );
+    }
+
+    if (catalogSortBy === "default") return list;
+
+    const dir = catalogSortDir === "asc" ? 1 : -1;
+    return [...list].sort((a, b) => {
+      if (catalogSortBy === "name") {
+        const cmp = a.name.localeCompare(b.name);
+        return cmp !== 0 ? cmp * dir : a.id.localeCompare(b.id) * dir;
+      }
+      if (catalogSortBy === "category") {
+        const catCmp = a.category.localeCompare(b.category);
+        if (catCmp !== 0) return catCmp * dir;
+        return a.name.localeCompare(b.name);
+      }
+      // catalogSortBy === "stock"
+      const sa = a.stock;
+      const sb = b.stock;
+      if (sa == null && sb == null) return a.name.localeCompare(b.name);
+      if (sa == null) return 1;
+      if (sb == null) return -1;
+      if (sa !== sb) return (sa - sb) * dir;
+      return a.name.localeCompare(b.name);
+    });
+  }, [
+    catalogProducts,
+    itemQuery,
+    catalogStockFilter,
+    lowStockThreshold,
+    catalogSortBy,
+    catalogSortDir,
+  ]);
 
   const sortedCatalogProductsForSelect = useMemo(() => {
     return [...catalogProducts].sort((a, b) => a.name.localeCompare(b.name));
@@ -2935,55 +3134,11 @@ export default function SettingsPage() {
       )}
 
       <div className="sticky top-0 z-30 bg-[#f0f2f5]">
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
-        <h1 className="text-lg font-bold text-gray-900">⚙️ Settings</h1>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => router.push("/")}
-            className="px-4 py-2 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] transition-colors"
-          >
-            Menu
-          </button>
-          <button
-            onClick={() => router.push("/Orders")}
-            className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors flex items-center gap-2"
-          >
-            <span>Orders</span>
-            {savedOrders.length > 0 && (
-              <span
-                aria-label={`${savedOrders.length} saved orders`}
-                className="inline-flex items-center justify-center px-1.5 py-0.5 rounded bg-amber-500 text-gray-950 font-mono text-xs font-bold leading-none tabular-nums"
-              >
-                {savedOrders.length}
-              </span>
-            )}
-          </button>
-          <button
-            onClick={() => router.push("/History")}
-            className="px-4 py-2 rounded-xl bg-[#1a5c2a] text-white text-sm font-semibold hover:bg-green-700 transition-colors"
-          >
-            History
-          </button>
-        </div>
-      </div>
+      <PosTopNav activePage="settings" title="Settings" sticky={false} />
 
       <div className="px-6 pt-4 pb-2 bg-[#f0f2f5] border-b border-gray-100">
         <div className="flex flex-wrap gap-2 mb-4">
-          {(
-            [
-              { id: "contacts", label: "Contacts" },
-              { id: "catalog", label: "Catalog" },
-              { id: "inventory", label: "Inventory Log" },
-              { id: "shortcuts", label: "⌨️ Shortcuts" },
-              { id: "menu", label: "Menu Style" },
-              { id: "reports", label: "Reports" },
-              { id: "ledger", label: "Customer Ledger" },
-              { id: "receipt", label: "Receipt Settings" },
-              { id: "receiptNumber", label: "Receipt Number" },
-              { id: "backup", label: "Full Backup" },
-              { id: "danger", label: "Remove All Data" },
-            ] as const
-          ).map((t) => (
+          {SETTINGS_TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
@@ -4055,11 +4210,35 @@ export default function SettingsPage() {
                       max="999"
                       value={lowStockThreshold}
                       onChange={(e) => {
-                        const val = Math.max(0, parseInt(e.target.value) || 0);
+                        const val = Math.max(0, Math.min(999, parseInt(e.target.value, 10) || 0));
                         setLowStockThreshold(val);
+                        setPosSettings((prev) => ({ ...prev, lowStockThreshold: val }));
                         if (typeof window !== "undefined") {
-                          localStorage.setItem("pos_low_stock_threshold", String(val));
+                          localStorage.setItem(LOW_STOCK_THRESHOLD_STORAGE_KEY, String(val));
+                          window.dispatchEvent(
+                            new CustomEvent(LOW_STOCK_THRESHOLD_CHANGED_EVENT, {
+                              detail: val,
+                            }),
+                          );
                         }
+                        void fetch("/api/pos-settings", {
+                          method: "PUT",
+                          headers: { "Content-Type": "application/json" },
+                          body: JSON.stringify({ lowStockThreshold: val }),
+                        })
+                          .then((r) => (r.ok ? r.json() : null))
+                          .then((data) => {
+                            if (data?.settings) {
+                              window.dispatchEvent(
+                                new CustomEvent(POS_SETTINGS_CHANGED_EVENT, {
+                                  detail: data.settings,
+                                }),
+                              );
+                            }
+                          })
+                          .catch(() => {
+                            /* keep localStorage sync */
+                          });
                       }}
                       className="w-20 px-2.5 py-1 text-sm font-bold text-center border border-amber-300 rounded-lg bg-white tabular-nums focus:ring-2 focus:ring-amber-500/20"
                     />
@@ -4067,55 +4246,134 @@ export default function SettingsPage() {
                   </div>
                 </div>
 
-                {/* Quick Stock Filters */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setCatalogStockFilter("all")}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors tabular-nums ${
-                      catalogStockFilter === "all"
-                        ? "bg-gray-900 text-white border-gray-900"
-                        : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
-                    }`}
+                {/* Quick Stock Filters + Sort Controls */}
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setCatalogStockFilter("all")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors tabular-nums ${
+                        catalogStockFilter === "all"
+                          ? "bg-gray-900 text-white border-gray-900"
+                          : "bg-white text-gray-700 border-gray-200 hover:bg-gray-50"
+                      }`}
+                    >
+                      All Items ({catalogProducts.length})
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogStockFilter("low")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                        catalogStockFilter === "low"
+                          ? "bg-amber-600 text-white border-amber-600"
+                          : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
+                      }`}
+                    >
+                      <AlertTriangle className="w-3.5 h-3.5" />
+                      <span>Low Stock ({lowStockCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogStockFilter("out")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                        catalogStockFilter === "out"
+                          ? "bg-red-700 text-white border-red-700"
+                          : "bg-red-50 text-red-900 border-red-200 hover:bg-red-100"
+                      }`}
+                    >
+                      <PackageX className="w-3.5 h-3.5" />
+                      <span>Out of Stock ({outOfStockCount})</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setCatalogStockFilter("in")}
+                      className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
+                        catalogStockFilter === "in"
+                          ? "bg-emerald-700 text-white border-emerald-700"
+                          : "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100"
+                      }`}
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>In Stock ({inStockCount})</span>
+                    </button>
+                  </div>
+
+                  {/* Sort options */}
+                  <div
+                    role="group"
+                    aria-label="Sort catalog items"
+                    className="flex items-center gap-1 bg-gray-100 p-1 rounded-lg border border-gray-200 flex-wrap"
                   >
-                    All Items ({catalogProducts.length})
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogStockFilter("low")}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
-                      catalogStockFilter === "low"
-                        ? "bg-amber-600 text-white border-amber-600"
-                        : "bg-amber-50 text-amber-900 border-amber-200 hover:bg-amber-100"
-                    }`}
-                  >
-                    <AlertTriangle className="w-3.5 h-3.5" />
-                    <span>Low Stock ({lowStockCount})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogStockFilter("out")}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
-                      catalogStockFilter === "out"
-                        ? "bg-red-700 text-white border-red-700"
-                        : "bg-red-50 text-red-900 border-red-200 hover:bg-red-100"
-                    }`}
-                  >
-                    <PackageX className="w-3.5 h-3.5" />
-                    <span>Out of Stock ({outOfStockCount})</span>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setCatalogStockFilter("in")}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-colors tabular-nums ${
-                      catalogStockFilter === "in"
-                        ? "bg-emerald-700 text-white border-emerald-700"
-                        : "bg-emerald-50 text-emerald-900 border-emerald-200 hover:bg-emerald-100"
-                    }`}
-                  >
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>In Stock ({inStockCount})</span>
-                  </button>
+                    <span className="inline-flex items-center gap-1 px-2 text-[11px] font-semibold text-gray-500 whitespace-nowrap">
+                      <ArrowUpDown className="w-3 h-3" aria-hidden="true" />
+                      <span>Sort:</span>
+                    </span>
+                    {(
+                      [
+                        { id: "default", label: "Default" },
+                        { id: "name", label: "Name" },
+                        { id: "stock", label: "Stock Level" },
+                        { id: "category", label: "Category" },
+                      ] as const
+                    ).map((opt) => {
+                      const active = catalogSortBy === opt.id;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          onClick={() => {
+                            if (opt.id === "default") {
+                              setCatalogSortBy("default");
+                              setCatalogSortDir("asc");
+                            } else if (catalogSortBy === opt.id) {
+                              setCatalogSortDir((d) =>
+                                d === "asc" ? "desc" : "asc",
+                              );
+                            } else {
+                              setCatalogSortBy(opt.id);
+                              setCatalogSortDir("asc");
+                            }
+                          }}
+                          className={`px-2.5 py-1 rounded-md text-xs font-semibold whitespace-nowrap transition-colors ${
+                            active
+                              ? "bg-white text-gray-900 shadow-xs border border-gray-200"
+                              : "text-gray-600 hover:text-gray-900"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      );
+                    })}
+                    {catalogSortBy !== "default" && (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setCatalogSortDir((d) => (d === "asc" ? "desc" : "asc"))
+                        }
+                        title={
+                          catalogSortDir === "asc"
+                            ? "Ascending (click to reverse)"
+                            : "Descending (click to reverse)"
+                        }
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 whitespace-nowrap transition-colors"
+                      >
+                        {catalogSortDir === "asc" ? (
+                          <ArrowUp className="w-3 h-3" aria-hidden="true" />
+                        ) : (
+                          <ArrowDown className="w-3 h-3" aria-hidden="true" />
+                        )}
+                        <span>
+                          {catalogSortBy === "stock"
+                            ? catalogSortDir === "asc"
+                              ? "Low → High"
+                              : "High → Low"
+                            : catalogSortDir === "asc"
+                              ? "A → Z"
+                              : "Z → A"}
+                        </span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
                 <input
@@ -4623,6 +4881,12 @@ export default function SettingsPage() {
                       desc: "Open unpaid saved orders list",
                     },
                     {
+                      action: "settings" as const,
+                      title: "Settings",
+                      icon: "⚙️",
+                      desc: "Open system, catalog, inventory & report settings",
+                    },
+                    {
                       action: "saveOrder" as const,
                       title: "Save Order",
                       icon: "💾",
@@ -4633,6 +4897,18 @@ export default function SettingsPage() {
                       title: "Pay / Checkout",
                       icon: "💵",
                       desc: "Cash checkout, save sales record, and open receipt",
+                    },
+                    {
+                      action: "customerSearch" as const,
+                      title: "Customer Search",
+                      icon: "👤",
+                      desc: "Jump to and open the customer search input in Billing",
+                    },
+                    {
+                      action: "productSearch" as const,
+                      title: "Product Search",
+                      icon: "🔍",
+                      desc: "Focus product / SKU / barcode search bar on the menu screen",
                     },
                   ]
                 ).map(({ action, title, icon, desc }) => {
@@ -5019,57 +5295,226 @@ export default function SettingsPage() {
 
         {tab === "menu" && (
           <div className="space-y-4">
+            <div className="bg-white rounded-2xl border border-gray-200 p-4 space-y-4">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div className="flex items-start gap-3 min-w-0 flex-1">
+                  <div className="w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0">
+                    <ImageIcon className="w-5 h-5 text-gray-700" aria-hidden="true" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-sm font-bold text-gray-900">
+                      Menu Header Logo &amp; Text
+                    </p>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Upload a logo to display next to the Menu title and customize the header text shown on the main Menu screen.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="inline-flex items-center gap-2.5 px-3 py-2 rounded-xl border border-gray-200 bg-slate-50 shrink-0">
+                  {posSettings.menuLogoImage ? (
+                    <img
+                      src={imageUrl(posSettings.menuLogoImage)}
+                      alt={
+                        (menuHeaderTextDraft ?? posSettings.menuHeaderText).trim() ||
+                        "Menu"
+                      }
+                      className="w-7 h-7 rounded-lg object-contain border border-gray-200 bg-white shrink-0"
+                    />
+                  ) : (
+                    <div className="w-7 h-7 rounded-lg bg-slate-100 border border-gray-200 text-slate-800 flex items-center justify-center shrink-0">
+                      <UtensilsCrossed className="w-3.5 h-3.5" aria-hidden="true" />
+                    </div>
+                  )}
+                  <span className="text-sm font-bold text-gray-900 max-w-[160px] truncate">
+                    {(menuHeaderTextDraft ?? posSettings.menuHeaderText).trim() ||
+                      DEFAULT_POS_SETTINGS.menuHeaderText}
+                  </span>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2 border-t border-gray-100">
+                <div className="space-y-2">
+                  <p className="text-xs font-semibold text-gray-700">
+                    Header Logo
+                  </p>
+                  <div className="flex flex-wrap items-center gap-3">
+                    {posSettings.menuLogoImage ? (
+                      <img
+                        src={imageUrl(posSettings.menuLogoImage)}
+                        alt="Menu logo"
+                        className="w-12 h-12 rounded-xl object-contain border border-gray-200 bg-gray-50 shrink-0"
+                      />
+                    ) : (
+                      <div className="w-12 h-12 rounded-xl border border-dashed border-gray-300 bg-gray-50 flex items-center justify-center text-gray-500 shrink-0">
+                        <UtensilsCrossed className="w-5 h-5" aria-hidden="true" />
+                      </div>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => menuLogoInputRef.current?.click()}
+                        disabled={
+                          posSettingsLoading ||
+                          isUploadingMenuLogo ||
+                          isSavingPosSettings
+                        }
+                        className="px-3 py-2 rounded-lg bg-blue-50 text-blue-800 text-xs font-semibold hover:bg-blue-100 disabled:opacity-50 inline-flex items-center gap-1.5"
+                      >
+                        <Upload className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>
+                          {isUploadingMenuLogo
+                            ? "Uploading..."
+                            : posSettings.menuLogoImage
+                              ? "Change Logo"
+                              : "Upload Logo"}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void removeMenuLogo()}
+                        disabled={
+                          posSettingsLoading ||
+                          isUploadingMenuLogo ||
+                          isSavingPosSettings ||
+                          !posSettings.menuLogoImage
+                        }
+                        className="px-3 py-2 rounded-lg bg-red-50 text-red-700 text-xs font-semibold hover:bg-red-100 disabled:opacity-50 inline-flex items-center gap-1.5"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                        <span>Remove Logo</span>
+                      </button>
+                    </div>
+                    <input
+                      ref={menuLogoInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp,image/gif"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void uploadMenuLogo(file);
+                        e.target.value = "";
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-2">
+                  <label
+                    htmlFor="menu-header-text-input"
+                    className="block text-xs font-semibold text-gray-700"
+                  >
+                    Menu Header Text
+                  </label>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <input
+                      id="menu-header-text-input"
+                      type="text"
+                      maxLength={60}
+                      value={menuHeaderTextDraft ?? posSettings.menuHeaderText}
+                      onChange={(e) => setMenuHeaderTextDraft(e.target.value)}
+                      placeholder={DEFAULT_POS_SETTINGS.menuHeaderText}
+                      className="flex-1 min-w-[160px] border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
+                    />
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveMenuBranding(
+                          {
+                            menuHeaderText:
+                              (
+                                menuHeaderTextDraft ?? posSettings.menuHeaderText
+                              ).trim() || DEFAULT_POS_SETTINGS.menuHeaderText,
+                          },
+                          "Menu header text saved",
+                        )
+                      }
+                      disabled={
+                        posSettingsLoading ||
+                        isSavingPosSettings ||
+                        isUploadingMenuLogo
+                      }
+                      className="px-3.5 py-2 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Save Text
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        void saveMenuBranding(
+                          {
+                            menuLogoImage: "",
+                            menuHeaderText: DEFAULT_POS_SETTINGS.menuHeaderText,
+                          },
+                          "Menu header reset to default",
+                        )
+                      }
+                      disabled={
+                        posSettingsLoading ||
+                        isSavingPosSettings ||
+                        isUploadingMenuLogo ||
+                        (!posSettings.menuLogoImage &&
+                          posSettings.menuHeaderText ===
+                            DEFAULT_POS_SETTINGS.menuHeaderText)
+                      }
+                      className="px-3 py-2 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 disabled:opacity-50 whitespace-nowrap"
+                    >
+                      Reset
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <div className="bg-white rounded-2xl border border-gray-200 p-4 flex flex-wrap items-center justify-between gap-4">
               <div className="flex items-start gap-3 min-w-0 flex-1">
                 <div className="w-9 h-9 rounded-lg border border-gray-200 bg-gray-50 flex items-center justify-center shrink-0">
-                  <Clock className="w-5 h-5 text-gray-700" />
+                  <UtensilsCrossed className="w-5 h-5 text-gray-700" />
                 </div>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     <p className="text-sm font-bold text-gray-900">
-                      Header Digital Clock
+                      Dine-In Table Management
                     </p>
                     <span
                       className={`px-2 py-0.5 rounded border text-[11px] font-semibold uppercase tracking-wide ${
-                        posSettings.digitalClockEnabled
+                        posSettings.tableManagementEnabled
                           ? "bg-emerald-50 text-emerald-800 border-emerald-200"
                           : "bg-gray-100 text-gray-600 border-gray-200"
                       }`}
                     >
-                      {posSettings.digitalClockEnabled ? "Shown" : "Hidden"}
+                      {posSettings.tableManagementEnabled ? "Enabled" : "Disabled"}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5">
-                    Show or hide the live digital clock (with seconds) above the navigation buttons on the main billing screen.
+                    Enable or disable Dine-In table selection in Billing and the table floor board on Saved Orders.
                   </p>
                 </div>
               </div>
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => void setDigitalClockVisibility(true)}
+                  onClick={() => void toggleTableManagement(true)}
                   disabled={posSettingsLoading || isSavingPosSettings}
-                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
-                    posSettings.digitalClockEnabled
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 disabled:opacity-50 ${
+                    posSettings.tableManagementEnabled
                       ? "bg-gray-900 text-white border-gray-900"
                       : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
                   }`}
                 >
-                  <Eye className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Show</span>
+                  Enable
                 </button>
                 <button
                   type="button"
-                  onClick={() => void setDigitalClockVisibility(false)}
+                  onClick={() => void toggleTableManagement(false)}
                   disabled={posSettingsLoading || isSavingPosSettings}
-                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 disabled:opacity-50 ${
-                    !posSettings.digitalClockEnabled
+                  className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition-colors whitespace-nowrap shrink-0 disabled:opacity-50 ${
+                    !posSettings.tableManagementEnabled
                       ? "bg-gray-900 text-white border-gray-900"
                       : "bg-white text-gray-800 border-gray-300 hover:bg-gray-50"
                   }`}
                 >
-                  <EyeOff className="w-3.5 h-3.5" aria-hidden="true" />
-                  <span>Hide</span>
+                  Disable
                 </button>
               </div>
             </div>
@@ -5959,6 +6404,25 @@ export default function SettingsPage() {
                 >
                   Print Report
                 </button>
+                {reportMode === "items" && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      exportItemReportToExcel({
+                        periodLabel: itemReportPeriodLabel,
+                        includePeriod: itemReportRange !== "date",
+                        rows: itemReportRows,
+                        totalItems: reportTotals.totalItems,
+                        totalRevenue: reportTotals.totalRevenue,
+                      })
+                    }
+                    disabled={reportsLoading || itemReportRows.length === 0}
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-800 disabled:opacity-45 whitespace-nowrap shrink-0"
+                  >
+                    <FileSpreadsheet className="w-4 h-4" aria-hidden="true" />
+                    <span>Export to Excel</span>
+                  </button>
+                )}
               </div>
             </div>
 

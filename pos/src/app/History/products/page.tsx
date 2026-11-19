@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import { ArrowLeft } from "lucide-react";
+import PosTopNav from "../../components/PosTopNav";
 
 type ProductSale = {
   name: string;
@@ -98,29 +100,7 @@ export default function HistoryProductSalesPage() {
 
   return (
     <div className="min-h-screen bg-[#f0f2f5]">
-      <div className="bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between flex-wrap gap-3">
-        <h1 className="text-lg font-bold text-gray-900">📦 Daily Product Sales</h1>
-        <div className="flex gap-2 flex-wrap">
-          <button
-            onClick={() => router.push("/History")}
-            className="px-4 py-2.5 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors active:scale-95"
-          >
-            Order History
-          </button>
-          <button
-            onClick={() => router.push("/")}
-            className="px-4 py-2.5 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] transition-colors active:scale-95"
-          >
-            Menu
-          </button>
-          <button
-            onClick={() => router.push("/Orders")}
-            className="px-4 py-2.5 rounded-xl bg-[#7a4a00] text-white text-sm font-semibold hover:bg-amber-700 transition-colors active:scale-95"
-          >
-            Orders
-          </button>
-        </div>
-      </div>
+      <PosTopNav activePage="history" title="Daily Product Sales" />
 
       <div className="p-6 max-w-3xl">
         <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-4 space-y-3">
@@ -135,13 +115,21 @@ export default function HistoryProductSalesPage() {
             <button
               onClick={() => fetchProductSales(businessDate)}
               disabled={!businessDate || loading}
-              className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-95 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-95 disabled:opacity-50 whitespace-nowrap shrink-0"
             >
               Load
             </button>
+            <button
+              type="button"
+              onClick={() => router.push("/History")}
+              className="ml-auto inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200 transition-colors whitespace-nowrap shrink-0"
+            >
+              <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+              <span>Order History</span>
+            </button>
           </div>
           {!loading && products.length > 0 && (
-            <div className="flex gap-4 text-sm flex-wrap pt-1 border-t border-gray-100">
+            <div className="flex gap-4 text-sm flex-wrap pt-1 border-t border-gray-100 tabular-nums">
               <span className="text-gray-500">
                 Items sold:{" "}
                 <span className="font-bold text-gray-900">{totalQuantity}</span>

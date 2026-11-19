@@ -1,13 +1,31 @@
 "use client";
 import { useCart } from "../context/CartContext";
-import { useOrders } from "../context/OrdersContext";
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useOrders, type Order } from "../context/OrdersContext";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Minus, Plus, ScanBarcode, Search, X } from "lucide-react";
 import PrintModal from "./PrintModal";
 import { CartItem } from "../context/CartContext";
 import {
+  DEFAULT_POS_SETTINGS,
+  POS_SETTINGS_CHANGED_EVENT,
+  type PosSettings,
+} from "../../lib/pos-settings-shared";
+import {
+  DEFAULT_DINE_TABLE_COUNT,
+  DINE_TABLE_CONFIG_CHANGED_EVENT,
+  MAX_DINE_TABLE_COUNT,
+  MIN_DINE_TABLE_COUNT,
+  PENDING_DINE_TABLE_STORAGE_KEY,
+  getStoredDineTableCount,
+  setStoredDineTableCount,
+} from "../../lib/tables";
+import {
   getShortcuts,
   SHORTCUTS_CHANGED_EVENT,
+  POS_FOCUS_CUSTOMER_SEARCH_EVENT,
+  POS_FOCUS_PRODUCT_SEARCH_EVENT,
+  PENDING_FOCUS_STORAGE_KEY,
   type ShortcutsMap,
   DEFAULT_SHORTCUTS,
 } from "../../lib/shortcuts";
@@ -22,9 +40,20 @@ const ORDER_TYPE_OPTIONS: { label: OrderType; emoji: string }[] = [
 ];
 
 export default function Billing() {
-  const { cartItems, removeFromCart, clearCart, updateQuantity, updatePrice, totalPrice } =
-    useCart();
   const {
+    cartItems,
+    removeFromCart,
+    clearCart,
+    loadOrder,
+    updateQuantity,
+    updatePrice,
+    totalPrice,
+    productSearchQuery,
+    setProductSearchQuery,
+    submitProductSearchScan,
+  } = useCart();
+  const {
+    savedOrders,
     saveOrder,
     checkoutOrder,
     deleteOrder,
@@ -50,6 +79,14 @@ export default function Billing() {
   const [tableNumber, setTableNumber] = useState<number | null>(null);
   const [orderTypeOpen, setOrderTypeOpen] = useState(false);
   const [tablePickerOpen, setTablePickerOpen] = useState(false);
+  const [tableCount, setTableCount] = useState<number>(DEFAULT_DINE_TABLE_COUNT);
+  const [inspectedOccupiedTable, setInspectedOccupiedTable] = useState<number | null>(null);
+  const [barcodeSearchEnabled, setBarcodeSearchEnabled] = useState<boolean>(
+    DEFAULT_POS_SETTINGS.barcodeSearchEnabled,
+  );
+  const [tableManagementEnabled, setTableManagementEnabled] = useState<boolean>(
+    DEFAULT_POS_SETTINGS.tableManagementEnabled,
+  );
 
   const [customerDropdownOpen, setCustomerDropdownOpen] = useState(false);
   const [customerName, setCustomerName] = useState("Walk-In Customer");
@@ -63,6 +100,7 @@ export default function Billing() {
   const suggestionsRef = useRef<HTMLDivElement>(null);
   const nameInputRef = useRef<HTMLInputElement>(null);
   const customerDropdownRef = useRef<HTMLDivElement>(null);
+  const productSearchInputRef = useRef<HTMLInputElement>(null);
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printOrderData, setPrintOrderData] = useState<{
     id: string;
@@ -151,6 +189,128 @@ export default function Billing() {
       window.removeEventListener("catalog-updated", onCatalogUpdated);
     };
   }, [refreshCatalogStock]);
+
+  useEffect(() => {
+    let active = true;
+
+    const applyPendingTable = () => {
+      try {
+        const pendingRaw = sessionStorage.getItem(PENDING_DINE_TABLE_STORAGE_KEY);
+        if (pendingRaw) {
+          const parsed = Number(pendingRaw);
+          sessionStorage.removeItem(PENDING_DINE_TABLE_STORAGE_KEY);
+          if (Number.isInteger(parsed) && parsed >= 1) {
+            setOrderType("Dine In");
+            setTableNumber(parsed);
+            setTablePickerOpen(false);
+            setOrderTypeOpen(false);
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    const initTimer = window.setTimeout(() => {
+      if (!active) return;
+      setTableCount(getStoredDineTableCount());
+      applyPendingTable();
+    }, 0);
+
+    const fetchPosSettings = async () => {
+      try {
+        const res = await fetch("/api/pos-settings");
+        if (!res.ok) return;
+        const data = (await res.json().catch(() => ({}))) as {
+          settings?: PosSettings;
+        };
+        if (active && data.settings) {
+          if (typeof data.settings.barcodeSearchEnabled === "boolean") {
+            setBarcodeSearchEnabled(data.settings.barcodeSearchEnabled);
+          }
+          if (typeof data.settings.tableManagementEnabled === "boolean") {
+            setTableManagementEnabled(data.settings.tableManagementEnabled);
+            if (!data.settings.tableManagementEnabled) {
+              setTablePickerOpen(false);
+              setInspectedOccupiedTable(null);
+            }
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    };
+
+    void fetchPosSettings();
+
+    const onSettingsChanged = (e: Event) => {
+      const custom = e as CustomEvent<PosSettings>;
+      if (custom.detail) {
+        if (typeof custom.detail.barcodeSearchEnabled === "boolean") {
+          setBarcodeSearchEnabled(custom.detail.barcodeSearchEnabled);
+        }
+        if (typeof custom.detail.tableManagementEnabled === "boolean") {
+          setTableManagementEnabled(custom.detail.tableManagementEnabled);
+          if (!custom.detail.tableManagementEnabled) {
+            setTablePickerOpen(false);
+            setInspectedOccupiedTable(null);
+          }
+        }
+      } else {
+        void fetchPosSettings();
+      }
+    };
+
+    const onTableConfigChanged = (e: Event) => {
+      const custom = e as CustomEvent<number>;
+      if (typeof custom.detail === "number") {
+        setTableCount(custom.detail);
+      } else {
+        setTableCount(getStoredDineTableCount());
+      }
+    };
+
+    const onFocus = () => {
+      void fetchPosSettings();
+      applyPendingTable();
+    };
+
+    window.addEventListener(POS_SETTINGS_CHANGED_EVENT, onSettingsChanged);
+    window.addEventListener(DINE_TABLE_CONFIG_CHANGED_EVENT, onTableConfigChanged);
+    window.addEventListener("pos-dine-table-selected", applyPendingTable);
+    window.addEventListener("focus", onFocus);
+    return () => {
+      active = false;
+      window.clearTimeout(initTimer);
+      window.removeEventListener(POS_SETTINGS_CHANGED_EVENT, onSettingsChanged);
+      window.removeEventListener(
+        DINE_TABLE_CONFIG_CHANGED_EVENT,
+        onTableConfigChanged,
+      );
+      window.removeEventListener("pos-dine-table-selected", applyPendingTable);
+      window.removeEventListener("focus", onFocus);
+    };
+  }, []);
+
+  const occupiedTableMap = useMemo(() => {
+    const map = new Map<number, Order>();
+    for (const o of savedOrders) {
+      if (o.orderType === "Dine In" && o.tableNumber != null && o.tableNumber > 0) {
+        if (!map.has(o.tableNumber)) {
+          map.set(o.tableNumber, o);
+        }
+      }
+    }
+    return map;
+  }, [savedOrders]);
+
+  const occupiedTableCount = useMemo(() => {
+    let count = 0;
+    for (let n = 1; n <= tableCount; n++) {
+      if (occupiedTableMap.has(n)) count++;
+    }
+    return count;
+  }, [occupiedTableMap, tableCount]);
 
   useEffect(() => {
     if (!editingOrder) return;
@@ -656,6 +816,51 @@ export default function Billing() {
     }
   };
 
+  const focusCustomerSearch = useCallback(() => {
+    setOrderTypeOpen(false);
+    setTablePickerOpen(false);
+    setCustomerDropdownOpen(true);
+    setShowSuggestions(true);
+    void fetchSuggestions(isWalkIn ? "" : customerName);
+    window.requestAnimationFrame(() => {
+      nameInputRef.current?.focus();
+      nameInputRef.current?.select();
+    });
+  }, [fetchSuggestions, isWalkIn, customerName]);
+
+  useEffect(() => {
+    const onFocusCustomer = () => {
+      focusCustomerSearch();
+    };
+    window.addEventListener(POS_FOCUS_CUSTOMER_SEARCH_EVENT, onFocusCustomer);
+    return () =>
+      window.removeEventListener(
+        POS_FOCUS_CUSTOMER_SEARCH_EVENT,
+        onFocusCustomer,
+      );
+  }, [focusCustomerSearch]);
+
+  useEffect(() => {
+    const focusProduct = () => {
+      window.requestAnimationFrame(() => {
+        productSearchInputRef.current?.focus();
+        productSearchInputRef.current?.select();
+      });
+    };
+    try {
+      if (sessionStorage.getItem(PENDING_FOCUS_STORAGE_KEY) === "product") {
+        sessionStorage.removeItem(PENDING_FOCUS_STORAGE_KEY);
+        focusProduct();
+      }
+    } catch {
+      /* ignore */
+    }
+    window.addEventListener(POS_FOCUS_PRODUCT_SEARCH_EVENT, focusProduct);
+    return () => {
+      window.removeEventListener(POS_FOCUS_PRODUCT_SEARCH_EVENT, focusProduct);
+    };
+  }, []);
+
   // Global keyboard shortcuts (configured in Settings > Shortcuts)
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -670,7 +875,21 @@ export default function Billing() {
         Boolean(e.altKey) === Boolean(cfg.altKey) &&
         Boolean(e.ctrlKey) === Boolean(cfg.ctrlKey);
 
-      if (match(shortcuts.newOrder)) {
+      if (match(shortcuts.customerSearch)) {
+        e.preventDefault();
+        focusCustomerSearch();
+      } else if (match(shortcuts.productSearch)) {
+        e.preventDefault();
+        window.dispatchEvent(new Event(POS_FOCUS_PRODUCT_SEARCH_EVENT));
+        if (window.location.pathname !== "/") {
+          try {
+            sessionStorage.setItem(PENDING_FOCUS_STORAGE_KEY, "product");
+          } catch {
+            /* ignore */
+          }
+          router.push("/");
+        }
+      } else if (match(shortcuts.newOrder)) {
         e.preventDefault();
         if (isEditMode) {
           handleCancelEdit();
@@ -708,6 +927,9 @@ export default function Billing() {
       } else if (match(shortcuts.orders)) {
         e.preventDefault();
         router.push("/Orders");
+      } else if (match(shortcuts.settings)) {
+        e.preventDefault();
+        router.push("/settings");
       }
     };
 
@@ -728,6 +950,7 @@ export default function Billing() {
     editingOrder,
     updating,
     router,
+    focusCustomerSearch,
     clearCart,
     resetForm,
     handleEditSave,
@@ -885,24 +1108,74 @@ export default function Billing() {
 
         </div>
 
-        {/* Row 2: Invoice type + Order type + Table button */}
-        <div className="flex items-center gap-2">
-          <div className="px-3 py-2.5 rounded-xl bg-blue-50 border border-blue-200 text-sm font-semibold text-blue-700 whitespace-nowrap">Billing Invoice</div>
+        {/* Row 2: Product Search (left) + Order type + Table button */}
+        <div className="flex items-center gap-1.5">
+          {/* Product / Barcode Search */}
+          <div
+            className="flex-1 min-w-0 flex items-center gap-1.5 px-2.5 py-2 rounded-xl border border-gray-300 bg-white shadow-sm focus-within:border-[#1565c0] transition-colors"
+            title={
+              barcodeSearchEnabled
+                ? `Search by name, SKU, or scan barcode (${shortcuts.productSearch.label})`
+                : `Search by product name or SKU (${shortcuts.productSearch.label})`
+            }
+          >
+            {barcodeSearchEnabled ? (
+              <ScanBarcode
+                className="w-4 h-4 text-[#1565c0] flex-shrink-0"
+                aria-hidden="true"
+              />
+            ) : (
+              <Search
+                className="w-3.5 h-3.5 text-gray-400 flex-shrink-0"
+                aria-hidden="true"
+              />
+            )}
+            <input
+              ref={productSearchInputRef}
+              type="text"
+              value={productSearchQuery}
+              onChange={(e) => setProductSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  submitProductSearchScan();
+                  if (window.location.pathname !== "/") {
+                    router.push("/");
+                  }
+                }
+              }}
+              placeholder={
+                barcodeSearchEnabled ? "Product / SKU / Barcode" : "Product / SKU"
+              }
+              aria-label="Product search"
+              className="w-full min-w-0 text-xs font-medium text-gray-700 bg-transparent outline-none placeholder:text-gray-400"
+            />
+            {productSearchQuery && (
+              <button
+                type="button"
+                onClick={() => setProductSearchQuery("")}
+                aria-label="Clear product search"
+                className="text-gray-400 hover:text-gray-600 flex-shrink-0"
+              >
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+              </button>
+            )}
+          </div>
 
           {/* Order type */}
-          <div className="relative flex-1">
+          <div className="relative shrink-0">
             <button onClick={() => { setOrderTypeOpen((v) => !v); setTablePickerOpen(false); }}
-              className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 shadow-sm transition-colors text-sm active:scale-[0.99]">
-              <span className="flex items-center gap-1.5 font-medium text-gray-700">
-                <span>{ORDER_TYPE_OPTIONS.find((o) => o.label === orderType)?.emoji}</span>
+              className="flex items-center justify-between gap-1 px-2.5 py-2 rounded-xl border border-gray-300 bg-white hover:bg-gray-50 shadow-sm transition-colors text-xs font-medium active:scale-[0.99] whitespace-nowrap">
+              <span className="flex items-center gap-1 text-gray-700">
+                <span className="shrink-0">{ORDER_TYPE_OPTIONS.find((o) => o.label === orderType)?.emoji}</span>
                 <span>{orderType}</span>
               </span>
-              <span className={`text-gray-400 text-xs transition-transform duration-200 ${orderTypeOpen ? "rotate-180" : ""}`}>▾</span>
+              <span className={`text-gray-400 text-xs transition-transform duration-200 shrink-0 ${orderTypeOpen ? "rotate-180" : ""}`}>▾</span>
             </button>
             {orderTypeOpen && (
-              <div className="absolute top-full left-0 right-0 mt-1 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-lg z-50">
+              <div className="absolute top-full right-0 min-w-[140px] mt-1 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-lg z-50">
                 {ORDER_TYPE_OPTIONS.map(({ label, emoji }) => (
-                  <button key={label} onClick={() => { setOrderType(label); if (label !== "Dine In") setTableNumber(null); setOrderTypeOpen(false); }}
+                  <button key={label} onClick={() => { setOrderType(label); if (label !== "Dine In") { setTableNumber(null); setTablePickerOpen(false); setInspectedOccupiedTable(null); } setOrderTypeOpen(false); }}
                     className={`w-full flex items-center gap-2 px-4 py-3 text-sm transition-colors border-b border-gray-50 last:border-0 ${orderType === label ? "bg-amber-50 text-amber-900 font-semibold" : "text-gray-700 hover:bg-gray-50"}`}>
                     <span>{emoji}</span><span>{label}</span>
                     {orderType === label && <span className="ml-auto text-amber-900">✓</span>}
@@ -912,11 +1185,16 @@ export default function Billing() {
             )}
           </div>
 
-          {/* Table button — only shown for Dine In */}
-          {orderType === "Dine In" && (
+          {/* Table button — only shown for Dine In when table management is enabled */}
+          {orderType === "Dine In" && tableManagementEnabled && (
             <button
-              onClick={() => { setTablePickerOpen((v) => !v); setOrderTypeOpen(false); }}
-              className={`flex items-center gap-1.5 px-3 py-2.5 rounded-xl border text-sm font-bold whitespace-nowrap transition-all active:scale-95 ${tablePickerOpen ? "bg-amber-900 text-white border-amber-900" : tableNumber ? "bg-amber-100 text-amber-900 border-amber-300" : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"}`}
+              onClick={() => {
+                setTablePickerOpen((v) => !v);
+                setOrderTypeOpen(false);
+                setInspectedOccupiedTable(null);
+              }}
+              className={`flex items-center gap-1 px-2 py-2 rounded-xl border text-xs font-bold whitespace-nowrap flex-shrink-0 transition-all active:scale-95 ${tablePickerOpen ? "bg-amber-900 text-white border-amber-900" : tableNumber ? "bg-amber-100 text-amber-900 border-amber-300" : "bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100"}`}
+              title={`Dine-In Tables (${occupiedTableCount} occupied / ${Math.max(0, tableCount - occupiedTableCount)} free)`}
             >
               <span>🪑</span>
               <span>{tableNumber ? `T${tableNumber}` : "Table"}</span>
@@ -924,19 +1202,194 @@ export default function Billing() {
           )}
         </div>
 
-        {/* Table picker panel — full width, opens below row 2 */}
-        {orderType === "Dine In" && tablePickerOpen && (
-          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4">
-            <p className="text-sm text-amber-800 font-bold mb-3 uppercase tracking-wide">Select Table</p>
-            <div className="grid grid-cols-5 gap-2.5">
-              {Array.from({ length: 10 }, (_, i) => i + 1).map((n) => (
-                <button
-                  key={n}
-                  onClick={() => { setTableNumber(n); setTablePickerOpen(false); }}
-                  className={`h-14 rounded-xl text-xl font-bold transition-all border-2 active:scale-95 ${tableNumber === n ? "bg-amber-900 text-white border-amber-900 shadow-md" : "bg-white text-gray-800 border-gray-200 hover:bg-amber-100 hover:border-amber-400"}`}
-                >{n}</button>
-              ))}
+        {/* Dine-In Table Management panel — full width, opens below row 2 */}
+        {orderType === "Dine In" && tableManagementEnabled && tablePickerOpen && (
+          <div className="bg-amber-50/95 border border-amber-200 rounded-2xl p-3 space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-xs text-amber-900 font-bold uppercase tracking-wide">
+                  Dine-In Tables
+                </p>
+                <p className="text-[11px] text-amber-800/80 tabular-nums">
+                  {occupiedTableCount} Occupied · {Math.max(0, tableCount - occupiedTableCount)} Free
+                </p>
+              </div>
+              <div className="flex items-center gap-1.5 shrink-0">
+                {tableNumber != null && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setTableNumber(null);
+                      setInspectedOccupiedTable(null);
+                    }}
+                    className="px-2 py-1 rounded-lg bg-white border border-amber-300 text-[11px] font-semibold text-amber-900 hover:bg-amber-100"
+                  >
+                    Clear T{tableNumber}
+                  </button>
+                )}
+                <div
+                  className="inline-flex items-center rounded-lg border border-amber-300 bg-white overflow-hidden"
+                  aria-label="Adjust table count"
+                >
+                  <button
+                    type="button"
+                    disabled={tableCount <= MIN_DINE_TABLE_COUNT}
+                    onClick={() => setTableCount(setStoredDineTableCount(tableCount - 1))}
+                    aria-label="Decrease tables"
+                    className="p-1 text-amber-900 hover:bg-amber-50 disabled:opacity-40"
+                  >
+                    <Minus className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                  <span className="px-1.5 text-[11px] font-bold text-gray-800 tabular-nums">
+                    {tableCount}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={tableCount >= MAX_DINE_TABLE_COUNT}
+                    onClick={() => setTableCount(setStoredDineTableCount(tableCount + 1))}
+                    aria-label="Increase tables"
+                    className="p-1 text-amber-900 hover:bg-amber-50 disabled:opacity-40"
+                  >
+                    <Plus className="w-3 h-3" aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
             </div>
+
+            <div className="grid grid-cols-4 gap-1.5 max-h-56 overflow-y-auto pr-0.5">
+              {Array.from({ length: tableCount }, (_, i) => i + 1).map((n) => {
+                const occ = occupiedTableMap.get(n);
+                const isSelected = tableNumber === n;
+                const isEditingHere = Boolean(occ && editingOrderId === occ.id);
+                return (
+                  <button
+                    key={n}
+                    type="button"
+                    onClick={() => {
+                      if (occ && editingOrderId !== occ.id) {
+                        setInspectedOccupiedTable(n);
+                      } else {
+                        setTableNumber(n);
+                        setInspectedOccupiedTable(null);
+                        setTablePickerOpen(false);
+                      }
+                    }}
+                    className={`rounded-xl px-1.5 py-2 text-center border transition-all active:scale-95 flex flex-col items-center justify-center min-h-[56px] ${
+                      isSelected
+                        ? "bg-amber-900 text-white border-amber-900 shadow-sm"
+                        : occ
+                          ? "bg-amber-100/90 text-amber-950 border-amber-400 hover:bg-amber-200/80"
+                          : "bg-white text-gray-800 border-gray-200 hover:bg-amber-100/60 hover:border-amber-400"
+                    }`}
+                  >
+                    <span className="text-sm font-bold leading-tight tabular-nums">
+                      T{n}
+                    </span>
+                    <span
+                      className={`text-[10px] font-semibold leading-tight mt-0.5 ${
+                        isSelected
+                          ? "text-amber-100"
+                          : occ
+                            ? "text-amber-800"
+                            : "text-emerald-700"
+                      }`}
+                    >
+                      {isEditingHere
+                        ? "Editing"
+                        : occ
+                          ? "Occupied"
+                          : isSelected
+                            ? "Selected"
+                            : "Free"}
+                    </span>
+                    {occ && (
+                      <span
+                        className={`text-[10px] font-mono tabular-nums leading-tight mt-0.5 ${
+                          isSelected ? "text-amber-200" : "text-gray-700"
+                        }`}
+                      >
+                        Rs.{occ.total.toFixed(0)}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            {inspectedOccupiedTable != null &&
+              (() => {
+                const occ = occupiedTableMap.get(inspectedOccupiedTable);
+                if (!occ) return null;
+                const itemCount = occ.items.reduce(
+                  (sum, it) => sum + (Number(it.quantity) || 0),
+                  0,
+                );
+                return (
+                  <div className="rounded-xl bg-white border border-amber-300 p-2.5 space-y-2">
+                    <div className="flex items-start justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <p className="font-bold text-gray-900 truncate">
+                          Table #{inspectedOccupiedTable} · {occ.id}
+                        </p>
+                        <p className="text-gray-600 truncate">
+                          {occ.customerName || "Walk-In Customer"} · {itemCount} item
+                          {itemCount === 1 ? "" : "s"} ·{" "}
+                          <span className="font-semibold text-gray-900 tabular-nums">
+                            Rs. {occ.total.toFixed(0)}
+                          </span>
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setInspectedOccupiedTable(null)}
+                        className="text-[11px] text-gray-500 hover:text-gray-800 font-semibold shrink-0"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          loadOrder(occ.items);
+                          setEditingOrder({
+                            id: occ.id,
+                            status: "saved",
+                            notes: occ.notes,
+                            instructions: occ.instructions,
+                            customerName: occ.customerName,
+                            customerPhone: occ.customerPhone,
+                            orderType: occ.orderType,
+                            tableNumber: occ.tableNumber,
+                            createdAt: occ.createdAt,
+                            items: occ.items,
+                          });
+                          setOrderType("Dine In");
+                          setTableNumber(inspectedOccupiedTable);
+                          setInspectedOccupiedTable(null);
+                          setTablePickerOpen(false);
+                          showToast(`Loaded Table #${inspectedOccupiedTable} order`);
+                        }}
+                        className="flex-1 py-1.5 px-2 rounded-lg bg-[#1565c0] hover:bg-[#1a3a5c] text-white text-xs font-semibold transition-colors"
+                      >
+                        Open / Edit Order
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTableNumber(inspectedOccupiedTable);
+                          setInspectedOccupiedTable(null);
+                          setTablePickerOpen(false);
+                          showToast(`Assigned Table #${inspectedOccupiedTable}`);
+                        }}
+                        className="py-1.5 px-2.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-900 text-xs font-semibold transition-colors"
+                      >
+                        Assign Anyway
+                      </button>
+                    </div>
+                  </div>
+                );
+              })()}
           </div>
         )}
       </div>

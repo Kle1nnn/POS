@@ -19,16 +19,37 @@ export async function PUT(req: NextRequest) {
     const body = (await req.json()) as {
       barcodeSearchEnabled?: unknown;
       digitalClockEnabled?: unknown;
+      lowStockThreshold?: unknown;
+      tableManagementEnabled?: unknown;
+      menuLogoImage?: unknown;
+      menuHeaderText?: unknown;
     };
 
     const hasBarcode = typeof body.barcodeSearchEnabled === "boolean";
     const hasClock = typeof body.digitalClockEnabled === "boolean";
+    const hasTableManagement = typeof body.tableManagementEnabled === "boolean";
+    const hasMenuLogo = typeof body.menuLogoImage === "string";
+    const hasMenuText = typeof body.menuHeaderText === "string";
+    const parsedThreshold =
+      typeof body.lowStockThreshold === "number" &&
+      Number.isFinite(body.lowStockThreshold) &&
+      body.lowStockThreshold >= 0
+        ? Math.min(9999, Math.floor(body.lowStockThreshold))
+        : null;
+    const hasThreshold = parsedThreshold !== null;
 
-    if (!hasBarcode && !hasClock) {
+    if (
+      !hasBarcode &&
+      !hasClock &&
+      !hasThreshold &&
+      !hasTableManagement &&
+      !hasMenuLogo &&
+      !hasMenuText
+    ) {
       return NextResponse.json(
         {
           error:
-            "At least one boolean setting (barcodeSearchEnabled or digitalClockEnabled) is required",
+            "At least one valid setting is required",
         },
         { status: 400 },
       );
@@ -40,6 +61,14 @@ export async function PUT(req: NextRequest) {
         : {}),
       ...(hasClock
         ? { digitalClockEnabled: body.digitalClockEnabled as boolean }
+        : {}),
+      ...(hasThreshold ? { lowStockThreshold: parsedThreshold } : {}),
+      ...(hasTableManagement
+        ? { tableManagementEnabled: body.tableManagementEnabled as boolean }
+        : {}),
+      ...(hasMenuLogo ? { menuLogoImage: body.menuLogoImage as string } : {}),
+      ...(hasMenuText
+        ? { menuHeaderText: body.menuHeaderText as string }
         : {}),
     });
     return NextResponse.json({ settings }, { status: 200 });

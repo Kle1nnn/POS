@@ -1,5 +1,15 @@
 "use client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  AlertTriangle,
+  ChevronDown,
+  ChevronUp,
+  PackageX,
+  SlidersHorizontal,
+  X,
+} from "lucide-react";
 import { useCart, makeCartKey } from "../context/CartContext";
 import { useOrders } from "../context/OrdersContext";
 import { products } from "../data/products";
@@ -8,6 +18,7 @@ import {
   DEFAULT_MENU_APPEARANCE,
   type MenuAppearanceSettings,
 } from "../../lib/menu-appearance-shared";
+import { playBarcodeScanBeep } from "../../lib/audio";
 
 const BUILTIN_CATEGORY_TILES = [
   { key: "Burger", label: "Burgers", emoji: "🍔", image: "burger.png" },
@@ -45,32 +56,41 @@ export default function MenuGrid({
   searchQuery = "",
   onSearchChange,
   barcodeSearchEnabled = true,
+  lowStockThreshold = 5,
   scanSubmitCount = 0,
 }: {
   searchQuery?: string;
   onSearchChange?: (value: string) => void;
   barcodeSearchEnabled?: boolean;
+  lowStockThreshold?: number;
   scanSubmitCount?: number;
 }) {
+  const router = useRouter();
   const { cartItems, addToCart } = useCart();
   const { editingOrder } = useOrders();
   const [selection, setSelection] = useState<Selection>({ mode: "none" });
   const [menuProducts, setMenuProducts] = useState<Product[]>(baseProducts);
+  const [catalogLoaded, setCatalogLoaded] = useState(false);
   const [customCategories, setCustomCategories] = useState<CategoryTile[]>([]);
   const [appearance, setAppearance] = useState<MenuAppearanceSettings>(
     DEFAULT_MENU_APPEARANCE,
   );
   const [toast, setToast] = useState<{
     message: string;
-    tone: "error" | "success" | "info";
+    tone: "error" | "success" | "info" | "warning";
+    actionHref?: string;
+    actionLabel?: string;
   } | null>(null);
+  const [alertExpanded, setAlertExpanded] = useState(true);
   const toastTimerRef = useRef<number | null>(null);
   const lastAutoMatchRef = useRef("");
   const debounceTimerRef = useRef<number | null>(null);
   const lastScanSubmitCountRef = useRef(scanSubmitCount);
   const barcodePendingPizzaIdRef = useRef<string | null>(null);
+  const seenLowStockLevelsRef = useRef<Map<string, number> | null>(null);
 
   const recordBarcodeScanEvent = useCallback((product: Product) => {
+    playBarcodeScanBeep();
     void fetch("/api/catalog/inventory", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -87,14 +107,24 @@ export default function MenuGrid({
   }, []);
 
   const showNotice = useCallback(
-    (message: string, tone: "error" | "success" | "info" = "info") => {
-      setToast({ message, tone });
+    (
+      message: string,
+      tone: "error" | "success" | "info" | "warning" = "info",
+      durationMs = 2800,
+      action?: { href: string; label: string },
+    ) => {
+      setToast({
+        message,
+        tone,
+        actionHref: action?.href,
+        actionLabel: action?.label,
+      });
       if (toastTimerRef.current !== null) {
         window.clearTimeout(toastTimerRef.current);
       }
       toastTimerRef.current = window.setTimeout(() => {
         setToast(null);
-      }, 2800);
+      }, durationMs);
     },
     [],
   );
@@ -199,6 +229,7 @@ export default function MenuGrid({
           }),
         ),
       );
+      setCatalogLoaded(true);
     } catch (error) {
       console.error("Failed to load custom catalog", error);
     }
@@ -245,6 +276,116 @@ export default function MenuGrid({
     }
     return map;
   }, [cartItems]);
+
+  const stockAlerts = useMemo(() => {
+    const threshold = Math.max(0, lowStockThreshold);
+    const items: {
+      id: string;
+      name: string;
+      category: string;
+      sku?: string;
+      remaining: number;
+      isOut: boolean;
+    }[] = [];
+
+    for (const product of allProducts) {
+      const eff = getEffectiveStock(product);
+      if (eff === null) continue;
+      const inCart = usedQtyByProduct.get(product.id) ?? 0;
+      const remaining = Math.max(0, eff - inCart);
+      if (remaining === 0 || (threshold > 0 && remaining <= threshold)) {
+        items.push({
+          id: product.id,
+          name: product.name,
+          category: product.category,
+          sku: product.sku,
+          remaining,
+          isOut: remaining === 0,
+        });
+      }
+    }
+
+    items.sort((a, b) => a.remaining - b.remaining || a.name.localeCompare(b.name));
+    return items;
+  }, [allProducts, getEffectiveStock, usedQtyByProduct, lowStockThreshold]);
+
+  const lowStockOnlyCount = useMemo(
+    () => stockAlerts.filter((item) => !item.isOut).length,
+    [stockAlerts],
+  );
+  const outOfStockAlertCount = useMemo(
+    () => stockAlerts.filter((item) => item.isOut).length,
+    [stockAlerts],
+  );
+
+  useEffect(() => {
+    if (!catalogLoaded) return;
+
+    const currentMap = new Map<string, number>();
+    for (const item of stockAlerts) {
+      currentMap.set(item.id, item.remaining);
+    }
+
+    const prevMap = seenLowStockLevelsRef.current;
+    seenLowStockLevelsRef.current = currentMap;
+
+    if (stockAlerts.length === 0) return;
+
+    if (prevMap === null) {
+      const first = stockAlerts[0];
+      const msg =
+        stockAlerts.length === 1
+          ? first.isOut
+            ? `Stock alert: ${first.name} is out of stock (0 left)`
+            : `Low stock alert: ${first.name} has ${first.remaining} left (threshold ≤ ${lowStockThreshold})`
+          : `Stock alert: ${stockAlerts.length} items at/below threshold (≤ ${lowStockThreshold} units)`;
+      const t = window.setTimeout(() => {
+        showNotice(
+          msg,
+          first.isOut && lowStockOnlyCount === 0 ? "error" : "warning",
+          4800,
+          {
+            href: `/settings?tab=catalog&stock=${lowStockOnlyCount > 0 ? "low" : "out"}`,
+            label: "Manage",
+          },
+        );
+      }, 0);
+      return () => window.clearTimeout(t);
+    }
+
+    const newlyLowered = stockAlerts.filter((item) => {
+      const prev = prevMap.get(item.id);
+      return prev === undefined || item.remaining < prev;
+    });
+
+    if (newlyLowered.length > 0) {
+      const lead = newlyLowered[0];
+      const msg =
+        newlyLowered.length === 1
+          ? lead.isOut
+            ? `Out of stock: ${lead.name} has 0 remaining`
+            : `Low stock alert: ${lead.name} fell to ${lead.remaining} left (threshold ≤ ${lowStockThreshold})`
+          : `Low stock alert: ${lead.name} (${lead.remaining} left) & ${newlyLowered.length - 1} more`;
+      const t = window.setTimeout(() => {
+        showNotice(
+          msg,
+          lead.isOut ? "error" : "warning",
+          4500,
+          {
+            href: `/settings?tab=catalog&stock=${lead.isOut ? "out" : "low"}`,
+            label: "Manage",
+          },
+        );
+      }, 0);
+      return () => window.clearTimeout(t);
+    }
+  }, [
+    catalogLoaded,
+    stockAlerts,
+    lowStockThreshold,
+    lowStockOnlyCount,
+    showNotice,
+  ]);
 
   const pizzaProducts = useMemo(
     () => allProducts.filter((p) => p.category === "Pizza"),
@@ -493,16 +634,148 @@ export default function MenuGrid({
 
   const toastBanner = toast && (
     <div
-      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold text-white border ${
+      role="status"
+      className={`fixed bottom-6 left-1/2 -translate-x-1/2 z-50 px-4 py-2.5 rounded-xl shadow-lg text-sm font-semibold border flex items-center gap-3 max-w-[92vw] ${
         toast.tone === "error"
-          ? "bg-red-700 border-red-800"
+          ? "bg-red-700 border-red-800 text-white"
           : toast.tone === "success"
-            ? "bg-emerald-700 border-emerald-800"
-            : "bg-gray-900 border-gray-800"
+            ? "bg-emerald-700 border-emerald-800 text-white"
+            : toast.tone === "warning"
+              ? "bg-amber-950 border-amber-700 text-amber-50"
+              : "bg-gray-900 border-gray-800 text-white"
       }`}
     >
-      {toast.message}
+      {toast.tone === "warning" && (
+        <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" aria-hidden="true" />
+      )}
+      <span className="truncate">{toast.message}</span>
+      {toast.actionHref && toast.actionLabel && (
+        <button
+          type="button"
+          onClick={() => {
+            const target = toast.actionHref!;
+            setToast(null);
+            router.push(target);
+          }}
+          className="px-2 py-0.5 rounded bg-white/15 hover:bg-white/25 text-xs font-semibold whitespace-nowrap shrink-0 transition-colors"
+        >
+          {toast.actionLabel}
+        </button>
+      )}
+      <button
+        type="button"
+        onClick={() => setToast(null)}
+        aria-label="Dismiss notification"
+        className="text-white/70 hover:text-white shrink-0"
+      >
+        <X className="w-3.5 h-3.5" />
+      </button>
     </div>
+  );
+
+  const lowStockWidget = stockAlerts.length > 0 && (
+    <section
+      aria-label="Persistent low stock alert"
+      className={`mx-4 mb-2.5 rounded-xl border ${
+        outOfStockAlertCount > 0 && lowStockOnlyCount === 0
+          ? "bg-red-50/95 border-red-200"
+          : "bg-amber-50/95 border-amber-200"
+      }`}
+    >
+      <div className="px-3.5 py-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {outOfStockAlertCount > 0 && lowStockOnlyCount === 0 ? (
+            <PackageX className="w-4 h-4 text-red-700 shrink-0" aria-hidden="true" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-amber-700 shrink-0" aria-hidden="true" />
+          )}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-800">
+            <span className="font-bold text-gray-900">Low Stock Alert</span>
+            <span className="text-gray-400" aria-hidden="true">
+              ·
+            </span>
+            {lowStockOnlyCount > 0 && (
+              <span className="font-semibold text-amber-900 tabular-nums">
+                {lowStockOnlyCount} at/below threshold (≤ {lowStockThreshold})
+              </span>
+            )}
+            {lowStockOnlyCount > 0 && outOfStockAlertCount > 0 && (
+              <span className="text-gray-400" aria-hidden="true">
+                ·
+              </span>
+            )}
+            {outOfStockAlertCount > 0 && (
+              <span className="font-semibold text-red-700 tabular-nums">
+                {outOfStockAlertCount} out of stock
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={() => setAlertExpanded((v) => !v)}
+            className="px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-xs font-semibold text-gray-800 hover:bg-gray-50 transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+          >
+            <span>
+              {alertExpanded ? "Collapse" : `Show All (${stockAlerts.length})`}
+            </span>
+            {alertExpanded ? (
+              <ChevronUp className="w-3.5 h-3.5" aria-hidden="true" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5" aria-hidden="true" />
+            )}
+          </button>
+          <Link
+            href="/settings?tab=inventory"
+            className="px-2.5 py-1 rounded-lg bg-gray-900 text-white text-xs font-semibold hover:bg-gray-800 transition-colors inline-flex items-center gap-1 whitespace-nowrap shrink-0"
+          >
+            <SlidersHorizontal className="w-3 h-3" aria-hidden="true" />
+            <span>Inventory Settings</span>
+          </Link>
+        </div>
+      </div>
+
+      {alertExpanded && (
+        <div className="border-t border-amber-200/70 bg-white/95 rounded-b-xl divide-y divide-gray-100 max-h-44 overflow-y-auto">
+          {stockAlerts.map((item) => (
+            <div
+              key={item.id}
+              className="px-3.5 py-2 flex items-center justify-between gap-3 text-xs hover:bg-gray-50/80"
+            >
+              <div className="min-w-0">
+                <button
+                  type="button"
+                  onClick={() => onSearchChange?.(item.name)}
+                  className="font-semibold text-gray-900 hover:text-[#1565c0] text-left truncate block max-w-full"
+                  title="Filter this product in search"
+                >
+                  {item.name}
+                </button>
+                <div className="text-[11px] text-gray-500 flex items-center gap-1.5">
+                  <span>{item.category}</span>
+                  {item.sku && (
+                    <>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-mono">{item.sku}</span>
+                    </>
+                  )}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 shrink-0">
+                <span
+                  className={`font-mono font-bold tabular-nums ${
+                    item.isOut ? "text-red-700" : "text-amber-800"
+                  }`}
+                >
+                  {item.isOut ? "0 left (Out)" : `${item.remaining} left`}
+                </span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
   );
 
   const tileGrid = (
@@ -549,6 +822,7 @@ export default function MenuGrid({
     return (
       <div className="flex flex-col min-h-0">
         {toastBanner}
+        {lowStockWidget}
         <div className="flex flex-wrap gap-2 p-3 bg-[#1e3a5f] justify-center">
           {searchResults.length === 0 ? (
             <div className="text-center py-16 text-white/60 w-full">
@@ -604,6 +878,7 @@ export default function MenuGrid({
   return (
     <div className="flex flex-col min-h-0">
       {toastBanner}
+      {lowStockWidget}
       {tileGrid}
       {selection.mode === "pizza" && selectedPizza && (
         <SizePicker

@@ -4,11 +4,14 @@ export type ShortcutAction =
   | "newOrder"
   | "history"
   | "orders"
+  | "settings"
   | "saveOrder"
-  | "payOrder";
+  | "payOrder"
+  | "customerSearch"
+  | "productSearch";
 
 export type ShortcutConfig = {
-  key: string; // e.g. "n", "h", "o", "s", "c"
+  key: string; // e.g. "n", "h", "o", "g", "s", "c", "u", "p"
   altKey: boolean;
   ctrlKey: boolean;
   label: string;
@@ -39,6 +42,13 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     label: "Alt + O",
     description: "Open Saved Orders",
   },
+  settings: {
+    key: "g",
+    altKey: true,
+    ctrlKey: false,
+    label: "Alt + G",
+    description: "Open Settings",
+  },
   saveOrder: {
     key: "s",
     altKey: true,
@@ -53,21 +63,45 @@ export const DEFAULT_SHORTCUTS: ShortcutsMap = {
     label: "Alt + C",
     description: "Pay / Cash Checkout",
   },
+  customerSearch: {
+    key: "u",
+    altKey: true,
+    ctrlKey: false,
+    label: "Alt + U",
+    description: "Customer Search",
+  },
+  productSearch: {
+    key: "p",
+    altKey: true,
+    ctrlKey: false,
+    label: "Alt + P",
+    description: "Product Search",
+  },
 };
 
 const STORAGE_KEY = "pos_keyboard_shortcuts_v1";
 export const SHORTCUTS_CHANGED_EVENT = "pos_shortcuts_changed";
+export const POS_FOCUS_CUSTOMER_SEARCH_EVENT = "pos_focus_customer_search";
+export const POS_FOCUS_PRODUCT_SEARCH_EVENT = "pos_focus_product_search";
+export const PENDING_FOCUS_STORAGE_KEY = "pos_pending_focus_target";
 
 export function getShortcuts(): ShortcutsMap {
   if (typeof window === "undefined") return DEFAULT_SHORTCUTS;
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return DEFAULT_SHORTCUTS;
-    const parsed = JSON.parse(raw);
-    return {
-      ...DEFAULT_SHORTCUTS,
-      ...parsed,
-    };
+    const parsed = JSON.parse(raw) as Partial<ShortcutsMap>;
+    const merged = { ...DEFAULT_SHORTCUTS };
+    for (const action of Object.keys(DEFAULT_SHORTCUTS) as ShortcutAction[]) {
+      const candidate = parsed?.[action];
+      if (candidate && typeof candidate.key === "string" && candidate.key.trim()) {
+        merged[action] = {
+          ...DEFAULT_SHORTCUTS[action],
+          ...candidate,
+        };
+      }
+    }
+    return merged;
   } catch {
     return DEFAULT_SHORTCUTS;
   }
