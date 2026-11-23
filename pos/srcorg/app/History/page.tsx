@@ -1,0 +1,581 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
+import PrintModal from "../components/PrintModal";
+import { CartItem } from "../context/CartContext";
+import { useCart } from "../context/CartContext";
+import { useOrders } from "../context/OrdersContext";
+
+type SalesSummary = {
+  businessDate: string | null;
+  totalRevenue: number;
+  totalOrders: number;
+  totalItems: number;
+  allTimeRevenue: number;
+  allTimeOrders: number;
+  allTimeItems: number;
+};
+
+export default function HistoryPage() {
+  const router = useRouter();
+  const { loadOrder } = useCart();
+  const { setEditingOrder } = useOrders();
+  const [businessDate, setBusinessDate] = useState("");
+  const [sales, setSales] = useState<SalesSummary | null>(null);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [receiptSearch, setReceiptSearch] = useState("");
+  const [searchActive, setSearchActive] = useState(false);
+  const [showTodaySales, setShowTodaySales] = useState(false);
+  const [showAllTime, setShowAllTime] = useState(false);
+
+  const [printModalOpen, setPrintModalOpen] = useState(false);
+  const [printOrder, setPrintOrder] = useState<{
+    id: string;
+    items: CartItem[];
+    total: number;
+    notes: string;
+    instructions: string;
+    customer?: { name: string; phone: string };
+    orderType?: string;
+    tableNumber?: number | null;
+    placedAt?: string | null;
+  } | null>(null);
+
+  const formatLocalDateTime = (value?: string | null) => {
+    if (!value) return "";
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return value;
+    return parsed.toLocaleString();
+  };
+
+  const openPrint = (order: any) => {
+    const items: CartItem[] = (order.items || []).map((item: any) => ({
+      ...item,
+      cartKey:
+        item.cartKey ??
+        `${item.name}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}`,
+      quantity: item.quantity ?? 1,
+      price: item.price ?? item.unit_price ?? 0,
+    }));
+    setPrintOrder({
+      id: order.orderCode,
+      items,
+      total: Number(order.total),
+      notes: order.notes ?? "",
+      instructions: order.instructions ?? "",
+      customer: order.customerName
+        ? { name: order.customerName, phone: order.customerPhone ?? "" }
+        : undefined,
+      orderType: order.orderType,
+      tableNumber: order.tableNumber,
+      placedAt: order.createdAt ?? order.checkedOutAt ?? null,
+    });
+    setPrintModalOpen(true);
+  };
+
+  const fetchHistory = async (date: string, receipt?: string) => {
+    const q = (receipt ?? "").trim();
+    if (!q && !date) return;
+    try {
+      const params = new URLSearchParams();
+      if (q) params.set("receipt", q);
+      else params.set("businessDate", date);
+      const res = await fetch(`/api/history?${params.toString()}`);
+      if (res.ok) {
+        const data = await res.json();
+        setOrders(data.orders || []);
+      }
+    } catch (e) {
+      console.error("Failed to load history", e);
+    }
+  };
+
+  const loadStateAndSales = async () => {
+    try {
+      const [stateRes, salesRes] = await Promise.all([
+        fetch("/api/store/state"),
+        fetch("/api/sales"),
+      ]);
+
+      let resolvedDate = businessDate;
+
+      if (stateRes.ok) {
+        const stateData = await stateRes.json();
+        const dateStr = stateData.currentBusinessDate as string;
+        if (dateStr) {
+          resolvedDate = dateStr;
+          setBusinessDate(dateStr);
+        }
+      }
+      if (salesRes.ok) {
+        const salesData = (await salesRes.json()) as SalesSummary;
+        setSales(salesData);
+      }
+
+      setSearchActive(false);
+      await fetchHistory(resolvedDate);
+    } catch (e) {
+      console.error("Failed to load store state or sales", e);
+    }
+  };
+
+  useEffect(() => {
+    loadStateAndSales();
+  }, []);
+
+  const handleBusinessDateSave = async () => {
+    if (!businessDate) return;
+    try {
+      await fetch("/api/store/state", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ businessDate }),
+      });
+      const salesRes = await fetch("/api/sales");
+      if (salesRes.ok) setSales(await salesRes.json());
+      setSearchActive(false);
+      setReceiptSearch("");
+      await fetchHistory(businessDate);
+    } catch (e) {
+      console.error("Failed to update business date", e);
+      alert("Failed to update business date. Check server logs.");
+    }
+  };
+
+  const handleReceiptSearch = async () => {
+    const q = receiptSearch.trim();
+    if (!q) {
+      setSearchActive(false);
+      await fetchHistory(businessDate);
+      return;
+    }
+    setSearchActive(true);
+    await fetchHistory(businessDate, q);
+  };
+
+  const clearReceiptSearch = async () => {
+    setReceiptSearch("");
+    setSearchActive(false);
+    await fetchHistory(businessDate);
+  };
+
+  const handleDelete = async (orderCode: string) => {
+    if (
+      !confirm(
+        `Remove order ${orderCode} from history? This cannot be undone.`,
+      )
+    ) {
+      return;
+    }
+    try {
+      const res = await fetch(
+        `/api/orders?orderCode=${encodeURIComponent(orderCode)}`,
+        { method: "DELETE" },
+      );
+      if (!res.ok) throw new Error("Delete failed");
+      const salesRes = await fetch("/api/sales");
+      if (salesRes.ok) setSales(await salesRes.json());
+      if (searchActive && receiptSearch.trim()) {
+        await fetchHistory(businessDate, receiptSearch.trim());
+      } else {
+        await fetchHistory(businessDate);
+      }
+    } catch (e) {
+      console.error("Failed to delete order from history", e);
+      alert("Failed to delete order. Check server logs.");
+    }
+  };
+
+  const handleEdit = (order: any) => {
+    const items: CartItem[] = (order.items || []).map((item: any) => ({
+      ...item,
+      cartKey:
+        item.cartKey ??
+        `${item.name}-${item.selectedSize}-${item.selectedTopping}-${item.selectedSauce}`,
+      quantity: item.quantity ?? 1,
+      price: item.price ?? item.unit_price ?? 0,
+    }));
+    loadOrder(items);
+    setEditingOrder({
+      id: order.orderCode,
+      status: "checkedout",
+      notes: order.notes ?? "",
+      instructions: order.instructions ?? "",
+      customerName: order.customerName ?? undefined,
+      customerPhone: order.customerPhone ?? undefined,
+      orderType: order.orderType ?? undefined,
+      tableNumber: order.tableNumber ?? null,
+      createdAt: order.createdAt ?? undefined,
+    });
+    router.push("/");
+  };
+
+  const handleRecalculate = async () => {
+    if (
+      !confirm(
+        "Recalculate all sales totals from actual order data? This fixes any incorrect totals.",
+      )
+    )
+      return;
+    try {
+      const res = await fetch("/api/sales/recalculate", { method: "POST" });
+      if (!res.ok) throw new Error("Failed");
+      const salesRes = await fetch("/api/sales");
+      if (salesRes.ok) setSales(await salesRes.json());
+      alert("Sales totals recalculated successfully.");
+    } catch (e) {
+      alert("Recalculation failed. Check server logs.");
+    }
+  };
+
+  const handleFixTotals = async () => {
+    try {
+      const res = await fetch("/api/sales/reset", { method: "POST" });
+      if (!res.ok) throw new Error("Failed");
+      const salesRes = await fetch("/api/sales");
+      if (salesRes.ok) setSales(await salesRes.json());
+      alert("Sales totals recomputed from actual orders.");
+    } catch (e) {
+      alert("Failed to fix totals. Check server logs.");
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-[#f0f2f5]">
+      {printOrder && (
+        <PrintModal
+          isOpen={printModalOpen}
+          onClose={() => setPrintModalOpen(false)}
+          cartItems={printOrder.items}
+          totalPrice={printOrder.total}
+          notes={printOrder.notes}
+          instructions={printOrder.instructions}
+          orderId={printOrder.id}
+          isPaid={true}
+          customer={printOrder.customer}
+          orderType={printOrder.orderType}
+          tableNumber={printOrder.tableNumber}
+          placedAt={printOrder.placedAt}
+        />
+      )}
+
+      <div className="sticky top-0 z-30 bg-white border-b border-gray-200 px-6 py-3 flex items-center justify-between">
+        <h1 className="text-lg font-bold text-gray-900">🕐 Order History</h1>
+        <div className="flex gap-2">
+          <button
+            onClick={() => router.push("/")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] active:scale-95 transition-all"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M3 12l2-2m0 0l7-7 7 7M5 10v10a1 1 0 001 1h3m10-11l2 2m-2-2v10a1 1 0 01-1 1h-3m-6 0a1 1 0 001-1v-4a1 1 0 011-1h2a1 1 0 011 1v4a1 1 0 001 1m-6 0h6"
+              />
+            </svg>
+            Menu
+          </button>
+          <button
+            onClick={() => router.push("/Orders")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-[#7a4a00] text-white text-sm font-semibold hover:bg-amber-700 active:scale-95 transition-all"
+          >
+            <svg
+              className="w-4 h-4"
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
+              />
+            </svg>
+            Orders
+          </button>
+          <button
+            onClick={() => router.push("/settings")}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-gray-800 text-white text-sm font-semibold hover:bg-gray-700 active:scale-95 transition-all"
+          >
+            Settings
+          </button>
+        </div>
+      </div>
+
+      <div className="p-6 max-w-3xl">
+        <div className="bg-white rounded-2xl border border-gray-100 p-4 mb-4 space-y-3">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-sm font-semibold text-gray-700">
+              Business date:
+            </span>
+            <input
+              type="date"
+              value={businessDate}
+              onChange={(e) => setBusinessDate(e.target.value)}
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+            <button
+              onClick={handleBusinessDateSave}
+              className="px-4 py-2 rounded-xl bg-gray-900 text-white text-sm font-semibold hover:bg-gray-800 transition-colors active:scale-95"
+            >
+              Set &amp; Load
+            </button>
+            <button
+              onClick={() => router.push("/History/products")}
+              className="px-4 py-2 rounded-xl bg-emerald-700 text-white text-sm font-semibold hover:bg-emerald-600 transition-colors active:scale-95"
+            >
+              📦 Daily Product Sales
+            </button>
+            <button
+              onClick={handleFixTotals}
+              className="px-4 py-2 rounded-xl bg-red-700 text-white text-sm font-semibold hover:bg-red-600 transition-colors active:scale-95"
+              title="Recompute totals from actual orders — use if numbers look wrong"
+            >
+              🔧 Fix Totals
+            </button>
+            <button
+              onClick={handleRecalculate}
+              className="px-4 py-2 rounded-xl bg-red-50 text-red-700 border border-red-200 text-sm font-semibold hover:bg-red-100 transition-colors active:scale-95"
+              title="Fix incorrect totals by recalculating from actual order data"
+            >
+              🔄 Fix Totals
+            </button>
+            <span className="text-xs text-gray-400">
+              Set this before opening each shift. Orders past midnight count to
+              whichever date is active.
+            </span>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap pt-1 border-t border-gray-100">
+            <span className="text-sm font-semibold text-gray-700">Search:</span>
+            <input
+              type="text"
+              value={receiptSearch}
+              onChange={(e) => setReceiptSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void handleReceiptSearch();
+              }}
+              placeholder="Receipt #, customer name, or phone"
+              className="border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 min-w-[220px] flex-1 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            />
+            <button
+              onClick={() => void handleReceiptSearch()}
+              className="px-4 py-2 rounded-xl bg-[#1a3a5c] text-white text-sm font-semibold hover:bg-[#1565c0] transition-colors active:scale-95"
+            >
+              Search
+            </button>
+            {searchActive && (
+              <button
+                onClick={() => void clearReceiptSearch()}
+                className="px-4 py-2 rounded-xl bg-gray-100 text-gray-700 text-sm font-semibold hover:bg-gray-200 transition-colors active:scale-95"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+          {sales && (
+            <div className="flex gap-3 text-sm flex-wrap items-center pt-1 border-t border-gray-100">
+              <span className="text-gray-500">
+                Today&apos;s sales:{" "}
+                {showTodaySales ? (
+                  <span className="font-bold text-gray-900">
+                    Rs. {sales.totalRevenue.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="font-bold text-gray-400 tracking-widest">••••</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowTodaySales((v) => !v)}
+                className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+              >
+                {showTodaySales ? "Hide" : "Show"}
+              </button>
+              <span className="text-gray-400">|</span>
+              <span className="text-gray-500">
+                Orders:{" "}
+                <span className="font-semibold text-gray-800">
+                  {sales.totalOrders}
+                </span>
+              </span>
+              <span className="text-gray-500">
+                Items:{" "}
+                <span className="font-semibold text-gray-800">
+                  {sales.totalItems}
+                </span>
+              </span>
+              <span className="text-gray-400">|</span>
+              <span className="text-gray-500">
+                All-time:{" "}
+                {showAllTime ? (
+                  <span className="font-bold text-gray-900">
+                    Rs. {sales.allTimeRevenue.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="font-bold text-gray-400 tracking-widest">••••</span>
+                )}
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowAllTime((v) => !v)}
+                className="px-2.5 py-1 rounded-lg bg-gray-100 text-gray-700 text-xs font-semibold hover:bg-gray-200"
+              >
+                {showAllTime ? "Hide" : "Show"}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {orders.length === 0 ? (
+          <div className="text-center py-20 text-gray-400 flex flex-col items-center gap-3">
+            <span className="text-5xl">📜</span>
+            <p className="text-base">
+              {searchActive
+                ? "No orders found for that search."
+                : "No completed orders for this date."}
+            </p>
+            <p className="text-sm">
+              {searchActive
+                ? "Try receipt #, customer name, or phone."
+                : "Checkout a saved order to see it here."}
+            </p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {searchActive && (
+              <p className="text-sm text-gray-500">
+                Showing results for &quot;{receiptSearch.trim()}&quot;
+              </p>
+            )}
+            {orders.map((order) => (
+              <div
+                key={order.orderCode}
+                className="bg-white rounded-2xl shadow-sm border border-gray-100 p-5"
+              >
+                <div className="flex justify-between items-start mb-4">
+                  <div>
+                    <p className="font-bold text-gray-900">{order.orderCode}</p>
+                    <div className="flex flex-wrap gap-1 mt-1 mb-1">
+                      {order.orderType && (
+                        <span className="text-[0.65rem] bg-amber-50 text-amber-800 font-semibold px-2 py-0.5 rounded-full border border-amber-100">
+                          {order.orderType === "Dine In" && order.tableNumber
+                            ? `🍽️ Dine In · Table #${order.tableNumber}`
+                            : order.orderType === "Delivery"
+                              ? "🛵 Delivery"
+                              : order.orderType === "Dine In"
+                                ? "🍽️ Dine In"
+                                : "🥡 Take Away"}
+                        </span>
+                      )}
+                      {order.customerName && (
+                        <span className="text-sm font-semibold bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full border border-blue-100">
+                          👤 {order.customerName}
+                        </span>
+                      )}
+                      {order.customerPhone && (
+                        <span className="text-[0.65rem] bg-gray-50 text-gray-600 px-2 py-0.5 rounded-full border border-gray-100">
+                          📞 {order.customerPhone}
+                        </span>
+                      )}
+                    </div>
+                    {order.notes && (
+                      <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-2 py-1 mt-1">
+                        📝 {order.notes}
+                      </p>
+                    )}
+                    {order.instructions && (
+                      <p className="text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-lg px-2 py-1 mt-1">
+                        📌 {order.instructions}
+                      </p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">
+                      Placed: {formatLocalDateTime(order.createdAt)}
+                    </p>
+                    {order.checkedOutAt && (
+                      <p className="text-xs text-gray-400">
+                        Checked out: {formatLocalDateTime(order.checkedOutAt)}
+                      </p>
+                    )}
+                  </div>
+                  <span className="text-xs bg-green-100 text-green-700 font-semibold px-2.5 py-1 rounded-full">
+                    ✓ Completed
+                  </span>
+                </div>
+
+                <div className="space-y-2 mb-4">
+                  {order.items.map((item: any, i: number) => (
+                    <div
+                      key={i}
+                      className="flex justify-between items-center text-sm text-gray-700"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-gray-400 text-xs">
+                          ×{item.quantity}
+                        </span>
+                        <span>{item.name}</span>
+                        {item.selectedSize && item.selectedSize !== "N/A" && (
+                          <span className="text-xs text-gray-400">
+                            ({item.selectedSize})
+                          </span>
+                        )}
+                        {item.selectedTopping &&
+                          item.selectedTopping !== "None" && (
+                            <span className="text-xs bg-orange-100 text-orange-600 px-1.5 py-0.5 rounded-full">
+                              {item.selectedTopping}
+                            </span>
+                          )}
+                        {item.selectedSauce &&
+                          item.selectedSauce !== "None" && (
+                            <span className="text-xs bg-yellow-100 text-yellow-600 px-1.5 py-0.5 rounded-full">
+                              {item.selectedSauce}
+                            </span>
+                          )}
+                      </div>
+                      <span className="font-medium">
+                        Rs. {(item.price * item.quantity).toFixed(0)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="border-t border-gray-100 pt-3 flex justify-between items-center">
+                  <span className="font-bold text-gray-900">
+                    Total: Rs. {order.total.toFixed(0)}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => openPrint(order)}
+                      className="text-sm px-3 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-800 font-semibold transition-colors active:scale-95"
+                    >
+                      🖨️ Print
+                    </button>
+                    <button
+                      onClick={() => handleEdit(order)}
+                      className="text-sm px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 text-blue-600 font-semibold transition-colors active:scale-95"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      onClick={() => handleDelete(order.orderCode)}
+                      className="text-sm px-3 py-2 rounded-xl bg-gray-100 hover:bg-red-100 hover:text-red-600 text-gray-600 transition-colors active:scale-95"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}

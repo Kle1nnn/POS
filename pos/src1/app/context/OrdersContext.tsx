@@ -1,0 +1,311 @@
+"use client";
+
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  ReactNode,
+} from "react";
+import { CartItem } from "./CartContext";
+
+export type OrderStatus = "saved" | "checkedout";
+
+export interface Order {
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
+  id: string;
+  items: CartItem[];
+  total: number;
+  notes?: string;
+  instructions?: string;
+  createdAt: string;
+  status: OrderStatus;
+  checkedOutAt?: string;
+}
+
+/** Snapshot used while editing an order (saved or from history). */
+export type EditingOrderSnapshot = {
+  id: string;
+  status: OrderStatus;
+  notes?: string;
+  instructions?: string;
+  customerName?: string;
+  customerPhone?: string;
+  orderType?: string;
+  tableNumber?: number | null;
+  createdAt?: string;
+  items?: CartItem[];
+};
+
+type OrdersContextType = {
+  savedOrders: Order[];
+  history: Order[];
+  saveOrder: (
+    items: CartItem[],
+    total: number,
+    notes?: string,
+    instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
+  ) => string;
+  checkoutOrder: (orderId: string) => void;
+  deleteOrder: (orderId: string) => void;
+  updateOrder: (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes?: string,
+    instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
+    status?: OrderStatus,
+  ) => void;
+  reloadSavedOrders: () => Promise<void>;
+  editingOrder: EditingOrderSnapshot | null;
+  editingOrderId: string | null;
+  setEditingOrder: (order: EditingOrderSnapshot | null) => void;
+};
+
+const OrdersContext = createContext<OrdersContextType | undefined>(undefined);
+
+let _receiptCounter = 0;
+let _receiptPrefix = "TBT";
+let _receiptSeeded = false;
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function seedCounter(orders: { id: string }[], prefix = _receiptPrefix) {
+  const re = new RegExp(`^${escapeRegExp(prefix)}-(\\d+)$`, "i");
+  let max = 0;
+  for (const o of orders) {
+    const match = o.id.match(re);
+    if (match) {
+      const n = parseInt(match[1], 10);
+      if (n > max) max = n;
+    }
+  }
+  if (max > _receiptCounter) _receiptCounter = max;
+}
+
+async function seedCounterFromDb(force = false) {
+  if (_receiptSeeded && !force) return;
+  _receiptSeeded = true;
+  try {
+    const res = await fetch("/api/orders/lastid");
+    if (res.ok) {
+      const data = await res.json();
+      if (typeof data.prefix === "string" && data.prefix.trim()) {
+        _receiptPrefix = String(data.prefix).trim().toUpperCase();
+      }
+      if (typeof data.lastNum === "number" && data.lastNum > _receiptCounter) {
+        _receiptCounter = data.lastNum;
+      }
+    }
+  } catch {
+    /* ignore */
+  }
+}
+
+function nextReceiptId(): string {
+  _receiptCounter += 1;
+  return `${_receiptPrefix}-${_receiptCounter}`;
+}
+
+export function OrdersProvider({ children }: { children: ReactNode }) {
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [editingOrder, setEditingOrder] = useState<EditingOrderSnapshot | null>(
+    null,
+  );
+
+  const mapApiOrders = (
+    rows: {
+      orderCode: string;
+      status: OrderStatus;
+      total: number;
+      notes?: string;
+      instructions?: string;
+      customerName?: string;
+      customerPhone?: string;
+      orderType?: string;
+      tableNumber?: number | null;
+      createdAt: string;
+      checkedOutAt?: string;
+      items: CartItem[];
+    }[],
+  ): Order[] =>
+    rows.map((o) => ({
+      id: o.orderCode,
+      items: o.items,
+      total: o.total,
+      notes: o.notes,
+      instructions: o.instructions,
+      customerName: o.customerName,
+      customerPhone: o.customerPhone,
+      orderType: o.orderType,
+      tableNumber: o.tableNumber,
+      createdAt: o.createdAt,
+      status: o.status,
+      checkedOutAt: o.checkedOutAt,
+    }));
+
+  const reloadSavedOrders = async () => {
+    try {
+      const res = await fetch("/api/orders/list");
+      if (!res.ok) return;
+      if (!res.headers.get("content-type")?.includes("application/json")) return;
+      const data = (await res.json().catch(() => ({}))) as {
+        orders?: Parameters<typeof mapApiOrders>[0];
+      };
+      if (!data || !Array.isArray(data.orders)) return;
+      const mapped = mapApiOrders(data.orders ?? []);
+      seedCounter(mapped, _receiptPrefix);
+      setOrders(mapped);
+    } catch (e) {
+      console.error("Failed to reload orders from database", e);
+    }
+  };
+
+  useEffect(() => {
+    const loadFromDb = async () => {
+      await seedCounterFromDb();
+      await reloadSavedOrders();
+    };
+    void loadFromDb();
+
+    const onReceiptNumberChange = () => {
+      _receiptSeeded = false;
+      _receiptCounter = 0;
+      void seedCounterFromDb(true).then(() => reloadSavedOrders());
+    };
+    window.addEventListener(
+      "receipt-number-settings-changed",
+      onReceiptNumberChange,
+    );
+    return () => {
+      window.removeEventListener(
+        "receipt-number-settings-changed",
+        onReceiptNumberChange,
+      );
+    };
+  }, []);
+
+  const saveOrder = (
+    items: CartItem[],
+    total: number,
+    notes?: string,
+    instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
+  ): string => {
+    const id = nextReceiptId();
+    const newOrder: Order = {
+      id,
+      items,
+      total,
+      notes,
+      instructions,
+      customerName,
+      customerPhone,
+      orderType,
+      tableNumber,
+      createdAt: new Date().toISOString(),
+      status: "saved",
+    };
+    setOrders((prev) => [newOrder, ...prev]);
+    return id;
+  };
+
+  const checkoutOrder = (orderId: string) => {
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? { ...o, status: "checkedout", checkedOutAt: new Date().toISOString() }
+          : o,
+      ),
+    );
+  };
+
+  const updateOrder = (
+    orderId: string,
+    items: CartItem[],
+    total: number,
+    notes?: string,
+    instructions?: string,
+    customerName?: string,
+    customerPhone?: string,
+    orderType?: string,
+    tableNumber?: number | null,
+    status?: OrderStatus,
+  ) => {
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === orderId
+          ? {
+              ...o,
+              items,
+              total,
+              notes,
+              instructions,
+              customerName,
+              customerPhone,
+              orderType,
+              tableNumber,
+              ...(status
+                ? {
+                    status,
+                    checkedOutAt:
+                      status === "saved"
+                        ? undefined
+                        : (o.checkedOutAt || new Date().toISOString()),
+                  }
+                : {}),
+            }
+          : o,
+      ),
+    );
+  };
+
+  const deleteOrder = (orderId: string) => {
+    setOrders((prev) => prev.filter((o) => o.id !== orderId));
+  };
+
+  const savedOrders = orders.filter((o) => o.status === "saved");
+  const history = orders.filter((o) => o.status === "checkedout");
+  const editingOrderId = editingOrder?.id ?? null;
+
+  return (
+    <OrdersContext.Provider
+      value={{
+        savedOrders,
+        history,
+        saveOrder,
+        checkoutOrder,
+        deleteOrder,
+        updateOrder,
+        reloadSavedOrders,
+        editingOrder,
+        editingOrderId,
+        setEditingOrder,
+      }}
+    >
+      {children}
+    </OrdersContext.Provider>
+  );
+}
+
+export function useOrders() {
+  const context = useContext(OrdersContext);
+  if (!context) throw new Error("useOrders must be used within OrdersProvider");
+  return context;
+}

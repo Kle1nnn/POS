@@ -1,0 +1,77 @@
+"use client";
+
+import { useState } from "react";
+import Link from "next/link";
+import { Clock, House, Settings, ShoppingCart } from "lucide-react";
+import { usePathname } from "next/navigation";
+export default function Sidebar() {
+  const [open, setOpen] = useState(true);
+  const pathname = usePathname();
+
+  const navItems = [
+    { icon: <House color="black" />, label: "Menu", href: "/" },
+    { icon: <ShoppingCart color="black" />, label: "Orders", href: "/Orders" },
+    { icon: <Clock color="black" />, label: "History", href: "/History" },
+    { icon: <Settings color="black" />, label: "Settings", href: "/settings" },
+  ];
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen(!open)}
+        className="fixed top-4 left-4 z-50 bg-black text-white px-3 py-2 rounded md:hidden"
+      >
+        ☰
+      </button>
+
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          className="fixed inset-0 bg-black/30 z-30 md:hidden"
+        />
+      )}
+
+      <aside
+        className={`
+        bg-white text-black w-28 shadow-sm flex flex-col border-r border-gray-200
+
+        /* Desktop */
+        md:relative md:translate-x-0 md:h-screen md:flex-shrink-0
+
+        /* Mobile Drawer */
+        fixed top-0 left-0 h-screen z-40
+        transform transition-transform duration-300 ease-in-out
+        ${open ? "translate-x-0" : "-translate-x-full"}
+      `}
+      >
+        {/* Header */}
+        <div className="p-6 text-xl text-center font-bold  border-gray-300">
+          POS
+        </div>
+
+        {/* Navigation */}
+        <nav className="p-4 space-y-4">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+            const Icon = item.icon;
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`flex flex-col items-center justify-center w-full aspect-square rounded-xl border transition-all duration-200 ease-in-out text-sm font-medium
+                  ${
+                    isActive
+                      ? "bg-amber-900 text-white border-amber-900 shadow-md"
+                      : "bg-white text-black border-white hover:bg-gray-100 hover:shadow"
+                  }`}
+              >
+                {item.icon}
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </aside>
+    </div>
+  );
+}
